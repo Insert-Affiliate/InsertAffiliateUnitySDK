@@ -25,6 +25,13 @@ namespace InsertAffiliate
         private const string KEY_AFFILIATE_STORED_DATE = "InsertAffiliate_StoredDate";
         private const string KEY_OFFER_CODE = "InsertAffiliate_OfferCode";
         private const string KEY_APP_ACCOUNT_TOKEN = "InsertAffiliate_AppAccountToken";
+        private const string KEY_AFFILIATE_EMAIL = "InsertAffiliate_AffiliateEmail";
+        private const string KEY_AFFILIATE_ID = "InsertAffiliate_AffiliateId";
+        private const string KEY_COMPANY_NAME = "InsertAffiliate_CompanyName";
+        private const string KEY_DEEP_LINK_DATA = "InsertAffiliate_DeepLinkData";
+
+        // Override token for testing
+        private static string overrideAppAccountToken = null;
 
         // API Endpoints
         private const string API_BASE_URL = "https://api.insertaffiliate.com";
@@ -32,9 +39,13 @@ namespace InsertAffiliate
         private const string API_OFFER_CODE = "/v1/affiliateReturnOfferCode";
         private const string API_TRACK_EVENT = "/v1/trackEvent";
         private const string API_EXPECTED_TRANSACTION = "/v1/api/app-store-webhook/create-expected-transaction";
+        private const string API_CHECK_AFFILIATE = "/V1/checkAffiliateExists";
 
         // Events
         public static event Action<string> OnAffiliateIdentifierChanged;
+
+        // Callback
+        private static Action<string> insertAffiliateIdentifierChangeCallback;
 
         /// <summary>
         /// Initialize the Insert Affiliate SDK
@@ -86,6 +97,197 @@ namespace InsertAffiliate
         public static bool IsInitialized()
         {
             return isInitialized;
+        }
+
+        /// <summary>
+        /// Set a callback to be invoked when the affiliate identifier changes
+        /// This is useful for updating your IAP provider attribution dynamically
+        /// </summary>
+        /// <param name="callback">Callback that receives the new affiliate identifier</param>
+        public static void SetInsertAffiliateIdentifierChangeCallback(Action<string> callback)
+        {
+            insertAffiliateIdentifierChangeCallback = callback;
+
+            if (verboseLogging)
+            {
+                Debug.Log("[Insert Affiliate] Affiliate identifier change callback registered");
+            }
+        }
+
+        /// <summary>
+        /// Get or create a user account token and store expected transaction for App Store Direct Integration
+        /// This method is for iOS apps using StoreKit 2 without a receipt verification platform
+        /// </summary>
+        /// <param name="callback">Callback receives the UUID string to use as appAccountToken, or null on error</param>
+        /// <param name="overrideUUID">Optional: Override UUID for testing purposes</param>
+        public static void ReturnUserAccountTokenAndStoreExpectedTransaction(
+            Action<string> callback,
+            string overrideUUID = null)
+        {
+            if (!isInitialized)
+            {
+                Debug.LogWarning("[Insert Affiliate] SDK not initialized");
+                callback?.Invoke(null);
+                return;
+            }
+
+#if !UNITY_IOS
+            Debug.LogWarning("[Insert Affiliate] App Store Direct Integration is only available on iOS");
+            callback?.Invoke(null);
+            return;
+#endif
+
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(
+                ReturnUserAccountTokenAndStoreExpectedTransactionCoroutine(callback, overrideUUID));
+        }
+
+        private static IEnumerator ReturnUserAccountTokenAndStoreExpectedTransactionCoroutine(
+            Action<string> callback,
+            string overrideUUID)
+        {
+            // Get or create the app account token
+            string token = GetOrCreateUserAccountToken(overrideUUID);
+
+            if (string.IsNullOrEmpty(token))
+            {
+                Debug.LogError("[Insert Affiliate] Failed to get user account token");
+                callback?.Invoke(null);
+                yield break;
+            }
+
+            // Store expected transaction on backend
+            yield return StoreExpectedAppStoreTransactionCoroutine(token);
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] App account token ready: {token}");
+            }
+
+            callback?.Invoke(token);
+        }
+
+        /// <summary>
+        /// Override the user account token for testing
+        /// </summary>
+        /// <param name="uuid">UUID string to use instead of generating one</param>
+        public static void OverrideUserAccountToken(string uuid)
+        {
+            overrideAppAccountToken = uuid;
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] User account token overridden: {uuid}");
+            }
+        }
+
+        /// <summary>
+        /// Get or create the user account token (UUID)
+        /// </summary>
+        private static string GetOrCreateUserAccountToken(string overrideUUID = null)
+        {
+            // Use override if provided
+            if (!string.IsNullOrEmpty(overrideUUID))
+            {
+                PlayerPrefs.SetString(KEY_APP_ACCOUNT_TOKEN, overrideUUID);
+                PlayerPrefs.Save();
+                return overrideUUID;
+            }
+
+            // Use static override if set
+            if (!string.IsNullOrEmpty(overrideAppAccountToken))
+            {
+                PlayerPrefs.SetString(KEY_APP_ACCOUNT_TOKEN, overrideAppAccountToken);
+                PlayerPrefs.Save();
+                return overrideAppAccountToken;
+            }
+
+            // Check if token already exists
+            string existingToken = PlayerPrefs.GetString(KEY_APP_ACCOUNT_TOKEN, string.Empty);
+
+            if (!string.IsNullOrEmpty(existingToken))
+            {
+                if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] Using existing app account token: {existingToken}");
+                }
+                return existingToken;
+            }
+
+            // Generate new UUID
+            string newToken = System.Guid.NewGuid().ToString().ToUpper();
+            PlayerPrefs.SetString(KEY_APP_ACCOUNT_TOKEN, newToken);
+            PlayerPrefs.Save();
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] Generated new app account token: {newToken}");
+            }
+
+            return newToken;
+        }
+
+        /// <summary>
+        /// Store expected App Store transaction on the backend
+        /// </summary>
+        private static IEnumerator StoreExpectedAppStoreTransactionCoroutine(string appAccountToken)
+        {
+            string affiliateIdentifier = ReturnInsertAffiliateIdentifier();
+
+            if (string.IsNullOrEmpty(affiliateIdentifier))
+            {
+                if (verboseLogging)
+                {
+                    Debug.Log("[Insert Affiliate] No affiliate identifier - skipping expected transaction storage");
+                }
+                yield break;
+            }
+
+            // Prepare request payload
+            var payload = new ExpectedTransactionPayload
+            {
+                companyId = companyCode,
+                affiliateIdentifier = affiliateIdentifier,
+                appAccountToken = appAccountToken
+            };
+
+            string jsonPayload = JsonUtility.ToJson(payload);
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonPayload);
+
+            string url = $"{API_BASE_URL}{API_EXPECTED_TRANSACTION}";
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] Storing expected transaction: {url}");
+                Debug.Log($"[Insert Affiliate] Payload: {jsonPayload}");
+            }
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    if (verboseLogging)
+                    {
+                        Debug.Log("[Insert Affiliate] Expected transaction stored successfully");
+                        Debug.Log($"[Insert Affiliate] Response: {request.downloadHandler.text}");
+                    }
+                }
+                else
+                {
+                    Debug.LogError($"[Insert Affiliate] Failed to store expected transaction: {request.error}");
+                    Debug.LogError($"[Insert Affiliate] Response code: {request.responseCode}");
+
+                    if (!string.IsNullOrEmpty(request.downloadHandler.text))
+                    {
+                        Debug.LogError($"[Insert Affiliate] Response: {request.downloadHandler.text}");
+                    }
+                }
+            }
         }
 
         /// <summary>
@@ -147,7 +349,8 @@ namespace InsertAffiliate
                 return;
             }
 
-            StoreInsertAffiliateIdentifier(upperShortCode);
+            // Fetch affiliate details from API and store if valid
+            FetchDeepLinkData(upperShortCode);
 
             if (verboseLogging)
             {
@@ -306,6 +509,9 @@ namespace InsertAffiliate
             // Notify listeners
             OnAffiliateIdentifierChanged?.Invoke(affiliateIdentifier);
 
+            // Notify callback
+            insertAffiliateIdentifierChangeCallback?.Invoke(affiliateIdentifier);
+
             // Auto-fetch offer code for short codes
             if (IsShortCode(referringLink))
             {
@@ -390,6 +596,38 @@ namespace InsertAffiliate
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Get stored affiliate email from deep link data
+        /// </summary>
+        public static string GetAffiliateEmail()
+        {
+            return PlayerPrefs.GetString(KEY_AFFILIATE_EMAIL, string.Empty);
+        }
+
+        /// <summary>
+        /// Get stored affiliate ID from deep link data
+        /// </summary>
+        public static string GetAffiliateId()
+        {
+            return PlayerPrefs.GetString(KEY_AFFILIATE_ID, string.Empty);
+        }
+
+        /// <summary>
+        /// Get stored company name from deep link data
+        /// </summary>
+        public static string GetCompanyName()
+        {
+            return PlayerPrefs.GetString(KEY_COMPANY_NAME, string.Empty);
+        }
+
+        /// <summary>
+        /// Get the complete deep link data as JSON string
+        /// </summary>
+        public static string GetDeepLinkData()
+        {
+            return PlayerPrefs.GetString(KEY_DEEP_LINK_DATA, string.Empty);
         }
 
         /// <summary>
@@ -530,16 +768,146 @@ namespace InsertAffiliate
             }
 
             // Parse and handle the URL
-            // This is a simplified version - full implementation would parse URL schemes
             if (url.StartsWith("ia-"))
             {
                 // Custom URL scheme: ia-companycode://shortcode
-                string shortCode = url.Substring(url.LastIndexOf("://") + 3);
-                SetShortCode(shortCode);
+                string shortCode = url.Substring(url.LastIndexOf("://") + 3).ToUpper();
+
+                if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] Custom URL scheme detected - Short code: {shortCode}");
+                }
+
+                // Fetch deep link data for this short code
+                FetchDeepLinkData(shortCode);
                 return true;
+            }
+            else if (url.Contains("insertaffiliate.link"))
+            {
+                // Universal link: https://insertaffiliate.link/V1/companycode/shortcode
+                string[] pathComponents = url.Split('/');
+
+                if (pathComponents.Length >= 6 && pathComponents[3] == "V1")
+                {
+                    string linkCompanyCode = pathComponents[4];
+                    string shortCode = pathComponents[5].ToUpper();
+
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Universal link detected - Company: {linkCompanyCode}, Short code: {shortCode}");
+                    }
+
+                    // Validate company code matches
+                    if (!string.IsNullOrEmpty(companyCode) && linkCompanyCode.ToLower() != companyCode.ToLower())
+                    {
+                        Debug.LogWarning($"[Insert Affiliate] URL company code ({linkCompanyCode}) doesn't match initialized company code ({companyCode})");
+                    }
+
+                    // Fetch deep link data for this short code
+                    FetchDeepLinkData(shortCode);
+                    return true;
+                }
+                else
+                {
+                    Debug.LogWarning($"[Insert Affiliate] Invalid universal link format: {url}");
+                }
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Fetch deep link data from Insert Affiliate API
+        /// </summary>
+        private static void FetchDeepLinkData(string shortCode)
+        {
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(FetchDeepLinkDataCoroutine(shortCode));
+        }
+
+        private static IEnumerator FetchDeepLinkDataCoroutine(string shortCode)
+        {
+            string url = $"{API_BASE_URL}{API_CHECK_AFFILIATE}";
+
+            // Prepare request payload
+            var payload = new CheckAffiliatePayload
+            {
+                companyId = companyCode,
+                affiliateCode = shortCode
+            };
+
+            string jsonPayload = JsonUtility.ToJson(payload);
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonPayload);
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] Fetching affiliate details from: {url}");
+                Debug.Log($"[Insert Affiliate] Payload: {jsonPayload}");
+            }
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+
+                yield return request.SendWebRequest();
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    Debug.LogError($"[Insert Affiliate] Error fetching affiliate details: {request.error}");
+
+                    if (request.responseCode == 404)
+                    {
+                        Debug.LogError($"[Insert Affiliate] Affiliate not found. Short code '{shortCode}' may not exist for company '{companyCode}'");
+                    }
+
+                    yield break;
+                }
+
+                try
+                {
+                    string responseText = request.downloadHandler.text;
+
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Raw affiliate API response: {responseText}");
+                    }
+
+                    // Parse JSON response
+                    AffiliateCheckResponse response = JsonUtility.FromJson<AffiliateCheckResponse>(responseText);
+
+                    if (response != null && response.exists && response.affiliate != null)
+                    {
+                        if (verboseLogging)
+                        {
+                            Debug.Log($"[Insert Affiliate] Affiliate found: {response.affiliate.affiliateName}");
+                            Debug.Log($"[Insert Affiliate] Short code: {response.affiliate.affiliateShortCode}");
+                            Debug.Log($"[Insert Affiliate] Deep link: {response.affiliate.deeplinkurl}");
+                        }
+
+                        // Store affiliate metadata
+                        PlayerPrefs.SetString(KEY_AFFILIATE_EMAIL, response.affiliate.affiliateName ?? "");
+                        PlayerPrefs.SetString(KEY_AFFILIATE_ID, response.affiliate.affiliateShortCode ?? "");
+                        PlayerPrefs.SetString(KEY_COMPANY_NAME, "");  // Not provided by this endpoint
+                        PlayerPrefs.SetString(KEY_DEEP_LINK_DATA, responseText);
+                        PlayerPrefs.Save();
+
+                        // Store the affiliate identifier using the short code
+                        StoreInsertAffiliateIdentifier(shortCode);
+                    }
+                    else
+                    {
+                        if (verboseLogging)
+                        {
+                            Debug.Log($"[Insert Affiliate] Affiliate not found or doesn't exist");
+                        }
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[Insert Affiliate] Failed to parse affiliate data: {e.Message}");
+                }
+            }
         }
 
         // Helper Methods
@@ -591,6 +959,37 @@ namespace InsertAffiliate
             public string eventName;
             public string deepLinkParam;
             public string companyId;
+        }
+
+        [Serializable]
+        private class CheckAffiliatePayload
+        {
+            public string companyId;
+            public string affiliateCode;
+        }
+
+        [Serializable]
+        private class AffiliateCheckResponse
+        {
+            public bool exists;
+            public string searchType;
+            public AffiliateDetails affiliate;
+        }
+
+        [Serializable]
+        private class AffiliateDetails
+        {
+            public string affiliateName;
+            public string affiliateShortCode;
+            public string deeplinkurl;
+        }
+
+        [Serializable]
+        private class ExpectedTransactionPayload
+        {
+            public string companyId;
+            public string affiliateIdentifier;
+            public string appAccountToken;
         }
     }
 }
