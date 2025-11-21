@@ -1,0 +1,14 @@
+{
+    "name": "InsertAffiliate.Runtime",
+    "rootNamespace": "InsertAffiliate",
+    "references": [],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

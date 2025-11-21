@@ -1,0 +1,24 @@
+{
+  "name": "com.insertaffiliate.unity-sdk",
+  "version": "1.0.0",
+  "displayName": "Insert Affiliate Unity SDK",
+  "description": "Unity SDK for Insert Affiliate platform - Simplified affiliate marketing for Unity apps with in-app purchases",
+  "unity": "2019.4",
+  "keywords": [
+    "affiliate",
+    "monetization",
+    "attribution",
+    "deep-linking",
+    "iap"
+  ],
+  "author": {
+    "name": "Insert Affiliate",
+    "email": "michael@insertaffiliate.com",
+    "url": "https://insertaffiliate.com"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Insert-Affiliate/InsertAffiliateUnitySDK.git"
+  },
+  "license": "MIT"
+}
