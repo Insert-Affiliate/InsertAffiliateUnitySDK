@@ -213,20 +213,41 @@ namespace InsertAffiliate
 
                 try
                 {
-                    var response = JsonUtility.FromJson<ShortLinkResponse>("{\"shortLink\":\"" + request.downloadHandler.text.Trim('"') + "\"}");
+                    string responseText = request.downloadHandler.text;
 
-                    if (!string.IsNullOrEmpty(response.shortLink))
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Raw API response: {responseText}");
+                    }
+
+                    // Handle different response formats
+                    string shortLink = null;
+
+                    // Try parsing as JSON object first
+                    if (responseText.StartsWith("{"))
+                    {
+                        var response = JsonUtility.FromJson<ShortLinkResponse>(responseText);
+                        shortLink = response?.shortLink;
+                    }
+                    // If it's a plain string (possibly quoted), use it directly
+                    else
+                    {
+                        shortLink = responseText.Trim('"', ' ', '\n', '\r');
+                    }
+
+                    if (!string.IsNullOrEmpty(shortLink))
                     {
                         if (verboseLogging)
                         {
-                            Debug.Log($"[Insert Affiliate] Short link received: {response.shortLink}");
+                            Debug.Log($"[Insert Affiliate] Short link received: {shortLink}");
                         }
 
-                        StoreInsertAffiliateIdentifier(response.shortLink);
-                        callback?.Invoke(response.shortLink);
+                        StoreInsertAffiliateIdentifier(shortLink);
+                        callback?.Invoke(shortLink);
                     }
                     else
                     {
+                        Debug.LogWarning($"[Insert Affiliate] Empty response, storing original link");
                         StoreInsertAffiliateIdentifier(referringLink);
                         callback?.Invoke(null);
                     }
@@ -234,6 +255,7 @@ namespace InsertAffiliate
                 catch (Exception e)
                 {
                     Debug.LogError($"[Insert Affiliate] Failed to parse response: {e.Message}");
+                    Debug.LogError($"[Insert Affiliate] Response text: {request.downloadHandler.text}");
                     StoreInsertAffiliateIdentifier(referringLink);
                     callback?.Invoke(null);
                 }
