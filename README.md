@@ -267,34 +267,147 @@ InsertAffiliateSDK.ReturnUserAccountTokenAndStoreExpectedTransaction((token) =>
 }, overrideUUID: "12345678-1234-1234-1234-123456789012");
 ```
 
-### Option 3: Other IAP Providers
+### Option 3: Apphud Integration
 
-Insert Affiliate also supports:
-- **Iaptic** - See [Iaptic integration docs](https://docs.insertaffiliate.com/iaptic-integration)
-- **Apphud** - See [Apphud integration docs](https://docs.insertaffiliate.com/apphud-integration)
+[Apphud](https://apphud.com) is a subscription analytics platform that simplifies in-app purchase management.
+
+**iOS Setup** (using native bridge):
+
+1. **Add Apphud to CocoaPods** (`ios-build/Podfile`):
+```ruby
+pod 'ApphudSDK', '~> 3.4.0'
+```
+
+2. **Create Native Bridge** (`Assets/Plugins/iOS/ApphudBridge.m`):
+```objc
+#import <Foundation/Foundation.h>
+#import <objc/runtime.h>
+#import <objc/message.h>
+
+extern "C" {
+    void _ApphudStart(const char* apiKey) {
+        @autoreleasepool {
+            NSString *apiKeyStr = [NSString stringWithUTF8String:apiKey];
+            Class apphudClass = NSClassFromString(@"ApphudSDK.Apphud") ?: NSClassFromString(@"Apphud");
+            if (apphudClass) {
+                ((void (*)(Class, SEL, NSString *))objc_msgSend)(apphudClass, NSSelectorFromString(@"startWithApiKey:"), apiKeyStr);
+            }
+        }
+    }
+
+    void _ApphudSetUserProperty(const char* key, const char* value) {
+        @autoreleasepool {
+            NSString *keyStr = [NSString stringWithUTF8String:key];
+            NSString *valueStr = [NSString stringWithUTF8String:value];
+            Class apphudClass = NSClassFromString(@"ApphudSDK.Apphud") ?: NSClassFromString(@"Apphud");
+            if (apphudClass) {
+                SEL selector = NSSelectorFromString(@"setUserPropertyWithKey:value:setOnce:");
+                Class propertyKeyClass = NSClassFromString(@"ApphudSDK.ApphudUserPropertyKey") ?: NSClassFromString(@"ApphudUserPropertyKey");
+                id propertyKey = ((id (*)(Class, SEL))objc_msgSend)(propertyKeyClass, NSSelectorFromString(@"alloc"));
+                propertyKey = ((id (*)(id, SEL, NSString *))objc_msgSend)(propertyKey, NSSelectorFromString(@"initWithKey:"), keyStr);
+                BOOL setOnce = NO;
+                ((void (*)(Class, SEL, id, NSString *, BOOL))objc_msgSend)(apphudClass, selector, propertyKey, valueStr, setOnce);
+            }
+        }
+    }
+}
+```
+
+3. **Create Unity Manager** (`Assets/Scripts/ApphudManager.cs`):
+```csharp
+using System.Runtime.InteropServices;
+using UnityEngine;
+
+public class ApphudManager : MonoBehaviour
+{
+    private const string APPHUD_API_KEY = "your_apphud_api_key";
+
+#if UNITY_IOS && !UNITY_EDITOR
+    [DllImport("__Internal")]
+    private static extern void _ApphudStart(string apiKey);
+
+    [DllImport("__Internal")]
+    private static extern void _ApphudSetUserProperty(string key, string value);
+#endif
+
+    void Start()
+    {
+#if UNITY_IOS && !UNITY_EDITOR
+        _ApphudStart(APPHUD_API_KEY);
+#endif
+    }
+
+    public void SetInsertAffiliateAttribution(string shortCode)
+    {
+#if UNITY_IOS && !UNITY_EDITOR
+        _ApphudSetUserProperty("insert_affiliate", shortCode);
+#endif
+    }
+}
+```
+
+4. **Pass Affiliate to Apphud**:
+```csharp
+using InsertAffiliate;
+
+// When you get the affiliate identifier
+InsertAffiliateSDK.SetInsertAffiliateIdentifier(deepLinkUrl, (shortCode) =>
+{
+    if (!string.IsNullOrEmpty(shortCode))
+    {
+        // Set user property in Apphud
+        ApphudManager apphudManager = FindObjectOfType<ApphudManager>();
+        apphudManager?.SetInsertAffiliateAttribution(shortCode);
+    }
+});
+```
+
+### Option 4: Iaptic Integration
+
+[Iaptic](https://iaptic.com) provides server-side receipt validation for in-app purchases.
+
+**Setup**:
+
+1. **Initialize Iaptic** with application username:
+```csharp
+using InsertAffiliate;
+
+public class IapticManager : MonoBehaviour
+{
+    void Start()
+    {
+        // Get affiliate identifier
+        string affiliateId = InsertAffiliateSDK.ReturnInsertAffiliateIdentifier();
+
+        // Initialize Iaptic with affiliate as application username
+        InitializeIaptic(affiliateId);
+    }
+
+    void InitializeIaptic(string applicationUsername)
+    {
+        // Your Iaptic initialization code
+        // Pass applicationUsername to Iaptic when making purchases
+        // This allows server-side tracking of affiliate-driven purchases
+    }
+}
+```
+
+2. **Pass Affiliate on Purchase**:
+```csharp
+// When processing a purchase
+string affiliateId = InsertAffiliateSDK.ReturnInsertAffiliateIdentifier();
+
+// Include in Iaptic purchase validation
+ValidatePurchaseWithIaptic(receipt, affiliateId);
+```
+
+**Note**: Both Apphud and Iaptic receive the affiliate identifier to track which purchases came from which affiliates.
 
 ## Deep Link Setup [Required]
 
 Insert Affiliate requires a Deep Linking platform to create links for your affiliates. Choose one of the following options:
 
-### Option 1: Insert Links (Built-in Beta)
-
-Insert Links is our built-in deep linking solution. To enable it:
-
-```csharp
-InsertAffiliateSDK.Initialize(
-    companyCode: "your_company_code",
-    verboseLogging: true,
-    insertLinksEnabled: true  // Enable Insert Links
-);
-```
-
-**Setup Instructions:**
-1. Complete the setup steps in [our Insert Links docs](https://docs.insertaffiliate.com/insert-links)
-2. Configure URL schemes in Unity Build Settings
-3. Test with: `xcrun simctl openurl booted "ia-yourcompanycode://testcode"`
-
-### Option 2: Branch.io Integration
+### Option 1: Branch.io Integration
 
 Branch.io is a popular deep linking platform. Here's how to integrate:
 
@@ -341,9 +454,9 @@ public class BranchManager : MonoBehaviour
 }
 ```
 
-### Option 3: AppsFlyer Integration
+### Option 2: AppsFlyer Integration
 
-AppsFlyer provides comprehensive attribution and deep linking. Integration example:
+Install the [AppsFlyer Unity SDK](https://dev.appsflyer.com/hc/docs/unity) and implement the integration:
 
 ```csharp
 using InsertAffiliate;
@@ -427,14 +540,22 @@ public class AppsFlyerManager : MonoBehaviour, IAppsFlyerConversionData
 }
 ```
 
-**Setup:** Follow [AppsFlyer's Unity integration guide](https://dev.appsflyer.com/hc/docs/unity) for complete setup.
-
-### Option 4: Other Deep Linking Platforms
+### Option 3: Other Deep Linking Platforms
 
 Insert Affiliate works with any deep linking provider. General steps:
 1. Generate a deep link using your provider
 2. Pass the deep link to your dashboard when an affiliate signs up
 3. Extract the link in your app and call `SetInsertAffiliateIdentifier`
+
+---
+
+### Note: Insert Links (Not Currently Supported)
+
+> ⚠️ **Insert Links** (our built-in deep linking solution) is **not currently supported** in the Unity SDK.
+>
+> If you need Insert Links support for Unity, please contact **michael@insertaffiliate.com** to request this feature.
+>
+> For now, please use one of the third-party deep linking options above (Branch.io, AppsFlyer, or other providers).
 
 ### 3. Basic Deep Link Handling
 
