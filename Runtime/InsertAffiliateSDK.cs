@@ -317,19 +317,24 @@ namespace InsertAffiliate
         }
 
         /// <summary>
-        /// Set a short code for affiliate tracking
+        /// Set a short code for affiliate tracking with validation
+        /// Validates the short code against the API before storing
         /// </summary>
-        public static void SetShortCode(string shortCode)
+        /// <param name="shortCode">The short code to validate and set</param>
+        /// <param name="callback">Callback receives true if valid and stored, false otherwise</param>
+        public static void SetShortCode(string shortCode, Action<bool> callback = null)
         {
             if (!isInitialized)
             {
                 Debug.LogError("[Insert Affiliate] SDK not initialized. Call Initialize() first.");
+                callback?.Invoke(false);
                 return;
             }
 
             if (string.IsNullOrEmpty(shortCode))
             {
                 Debug.LogWarning("[Insert Affiliate] Short code cannot be empty");
+                callback?.Invoke(false);
                 return;
             }
 
@@ -339,6 +344,7 @@ namespace InsertAffiliate
             if (upperShortCode.Length < 3 || upperShortCode.Length > 25)
             {
                 Debug.LogError("[Insert Affiliate] Short code must be between 3 and 25 characters");
+                callback?.Invoke(false);
                 return;
             }
 
@@ -346,15 +352,80 @@ namespace InsertAffiliate
             if (!IsAlphanumeric(upperShortCode))
             {
                 Debug.LogError("[Insert Affiliate] Short code must contain only letters and numbers");
+                callback?.Invoke(false);
                 return;
             }
 
-            // Fetch affiliate details from API and store if valid
-            FetchDeepLinkData(upperShortCode);
+            // Validate and fetch affiliate details from API
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(
+                ValidateAndSetShortCodeCoroutine(upperShortCode, callback));
+        }
+
+        private static IEnumerator ValidateAndSetShortCodeCoroutine(string shortCode, Action<bool> callback)
+        {
+            string url = $"{API_BASE_URL}{API_CHECK_AFFILIATE}";
+
+            var payload = new CheckAffiliatePayload
+            {
+                companyId = companyCode,
+                affiliateCode = shortCode
+            };
+
+            string jsonPayload = JsonUtility.ToJson(payload);
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonPayload);
 
             if (verboseLogging)
             {
-                Debug.Log($"[Insert Affiliate] Short code set: {upperShortCode}");
+                Debug.Log($"[Insert Affiliate] Validating short code: {shortCode}");
+            }
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+
+                yield return request.SendWebRequest();
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    Debug.LogError($"[Insert Affiliate] Error: Short code '{shortCode}' does not exist or validation failed.");
+                    callback?.Invoke(false);
+                    yield break;
+                }
+
+                try
+                {
+                    string responseText = request.downloadHandler.text;
+                    AffiliateCheckResponse response = JsonUtility.FromJson<AffiliateCheckResponse>(responseText);
+
+                    if (response != null && response.exists && response.affiliate != null)
+                    {
+                        Debug.Log($"[Insert Affiliate] Short code validated successfully for affiliate: {response.affiliate.affiliateName}");
+
+                        // Store affiliate metadata
+                        PlayerPrefs.SetString(KEY_AFFILIATE_EMAIL, response.affiliate.affiliateName ?? "");
+                        PlayerPrefs.SetString(KEY_AFFILIATE_ID, response.affiliate.affiliateShortCode ?? "");
+                        PlayerPrefs.SetString(KEY_COMPANY_NAME, "");
+                        PlayerPrefs.SetString(KEY_DEEP_LINK_DATA, responseText);
+                        PlayerPrefs.Save();
+
+                        // Store the affiliate identifier
+                        StoreInsertAffiliateIdentifier(shortCode);
+
+                        callback?.Invoke(true);
+                    }
+                    else
+                    {
+                        Debug.LogError($"[Insert Affiliate] Error: Short code '{shortCode}' does not exist or validation failed.");
+                        callback?.Invoke(false);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[Insert Affiliate] Failed to validate short code: {e.Message}");
+                    callback?.Invoke(false);
+                }
             }
         }
 
@@ -631,6 +702,113 @@ namespace InsertAffiliate
         }
 
         /// <summary>
+        /// Retrieve detailed information about an affiliate by their short code or deep link
+        /// This method queries the API and does not store or set the affiliate identifier
+        /// </summary>
+        /// <param name="affiliateCode">The short code or deep link to look up</param>
+        /// <param name="callback">Callback receives AffiliateDetailsPublic if found, null otherwise</param>
+        public static void GetAffiliateDetails(string affiliateCode, Action<AffiliateDetailsPublic> callback)
+        {
+            if (!isInitialized)
+            {
+                Debug.LogError("[Insert Affiliate] SDK not initialized");
+                callback?.Invoke(null);
+                return;
+            }
+
+            if (string.IsNullOrEmpty(companyCode))
+            {
+                Debug.LogError("[Insert Affiliate] Company code is not set");
+                callback?.Invoke(null);
+                return;
+            }
+
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(
+                GetAffiliateDetailsCoroutine(affiliateCode, callback));
+        }
+
+        private static IEnumerator GetAffiliateDetailsCoroutine(string affiliateCode, Action<AffiliateDetailsPublic> callback)
+        {
+            // Strip UUID from code if present (e.g., "ABC123-uuid" becomes "ABC123")
+            string cleanCode = affiliateCode;
+            if (affiliateCode.Contains("-"))
+            {
+                cleanCode = affiliateCode.Split('-')[0];
+            }
+
+            string url = $"{API_BASE_URL}{API_CHECK_AFFILIATE}";
+
+            var payload = new CheckAffiliatePayload
+            {
+                companyId = companyCode,
+                affiliateCode = cleanCode
+            };
+
+            string jsonPayload = JsonUtility.ToJson(payload);
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonPayload);
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] Getting affiliate details for: {cleanCode}");
+            }
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+
+                yield return request.SendWebRequest();
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] API Error ({request.responseCode}): {request.error}");
+                    }
+                    callback?.Invoke(null);
+                    yield break;
+                }
+
+                try
+                {
+                    string responseText = request.downloadHandler.text;
+                    AffiliateCheckResponse response = JsonUtility.FromJson<AffiliateCheckResponse>(responseText);
+
+                    if (response != null && response.exists && response.affiliate != null)
+                    {
+                        var details = new AffiliateDetailsPublic
+                        {
+                            affiliateName = response.affiliate.affiliateName,
+                            affiliateShortCode = response.affiliate.affiliateShortCode,
+                            deeplinkUrl = response.affiliate.deeplinkurl
+                        };
+
+                        if (verboseLogging)
+                        {
+                            Debug.Log($"[Insert Affiliate] Successfully retrieved affiliate details for: {details.affiliateName}");
+                        }
+
+                        callback?.Invoke(details);
+                    }
+                    else
+                    {
+                        if (verboseLogging)
+                        {
+                            Debug.Log("[Insert Affiliate] Affiliate does not exist");
+                        }
+                        callback?.Invoke(null);
+                    }
+                }
+                catch (Exception e)
+                {
+                    Debug.LogError($"[Insert Affiliate] Error fetching affiliate details: {e.Message}");
+                    callback?.Invoke(null);
+                }
+            }
+        }
+
+        /// <summary>
         /// Get the current offer code
         /// </summary>
         public static string OfferCode
@@ -649,7 +827,20 @@ namespace InsertAffiliate
         private static IEnumerator FetchOfferCodeCoroutine(string affiliateLink)
         {
             string encodedLink = UnityWebRequest.EscapeURL(affiliateLink);
-            string url = $"{API_BASE_URL}{API_OFFER_CODE}/{encodedLink}";
+
+            // Determine platform type (default to iOS)
+            string platformType = "ios";
+#if UNITY_ANDROID
+            platformType = "android";
+#endif
+
+            // Build URL with company code and platform type
+            string url = $"{API_BASE_URL}{API_OFFER_CODE}/{companyCode}/{encodedLink}?platformType={platformType}";
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] Fetching offer code from: {url}");
+            }
 
             using (UnityWebRequest request = UnityWebRequest.Get(url))
             {
@@ -991,5 +1182,16 @@ namespace InsertAffiliate
             public string affiliateIdentifier;
             public string appAccountToken;
         }
+    }
+
+    /// <summary>
+    /// Public class containing affiliate details returned from the API
+    /// </summary>
+    [Serializable]
+    public class AffiliateDetailsPublic
+    {
+        public string affiliateName;
+        public string affiliateShortCode;
+        public string deeplinkUrl;
     }
 }

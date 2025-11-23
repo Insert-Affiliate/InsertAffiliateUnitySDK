@@ -646,10 +646,13 @@ Short codes are unique, 3-25 character alphanumeric identifiers that affiliates 
 
 #### Setting a Short Code
 
+#### Recommended Usage with Validation Feedback
+
 ```csharp
 public class PromoCodeUI : MonoBehaviour
 {
     public InputField codeInputField;
+    public Text feedbackText;
 
     public void OnApplyCodeButtonClicked()
     {
@@ -661,47 +664,62 @@ public class PromoCodeUI : MonoBehaviour
             return;
         }
 
-        // Validate code (3-25 characters, alphanumeric only)
-        string upperCode = enteredCode.ToUpper().Trim();
-
-        if (upperCode.Length < 3 || upperCode.Length > 25)
+        // SetShortCode now validates against the API and provides callback
+        InsertAffiliateSDK.SetShortCode(enteredCode, isValid =>
         {
-            ShowError("Code must be 3-25 characters");
-            return;
-        }
+            if (isValid)
+            {
+                ShowSuccess($"Promo code applied successfully!");
 
-        if (!System.Text.RegularExpressions.Regex.IsMatch(upperCode, "^[A-Z0-9]+$"))
-        {
-            ShowError("Code must contain only letters and numbers");
-            return;
-        }
-
-        // Set the short code
-        InsertAffiliateSDK.SetShortCode(upperCode);
-
-        ShowSuccess($"Promo code '{upperCode}' applied!");
-
-        // Check if there's an associated offer
-        string offerCode = InsertAffiliateSDK.OfferCode;
-        if (!string.IsNullOrEmpty(offerCode))
-        {
-            ShowSuccess($"You've unlocked a special offer: {offerCode}");
-        }
+                // Check if there's an associated offer
+                string offerCode = InsertAffiliateSDK.OfferCode;
+                if (!string.IsNullOrEmpty(offerCode))
+                {
+                    ShowSuccess($"You've unlocked a special offer: {offerCode}");
+                }
+            }
+            else
+            {
+                ShowError("Invalid promo code. Please check and try again.");
+            }
+        });
     }
 
     void ShowError(string message)
     {
         Debug.LogError(message);
-        // Update your UI to show error
+        if (feedbackText != null)
+        {
+            feedbackText.text = message;
+            feedbackText.color = Color.red;
+        }
     }
 
     void ShowSuccess(string message)
     {
         Debug.Log(message);
-        // Update your UI to show success
+        if (feedbackText != null)
+        {
+            feedbackText.text = message;
+            feedbackText.color = Color.green;
+        }
     }
 }
 ```
+
+#### Basic Usage (Without Validation Feedback)
+
+```csharp
+// Simple usage without callback
+InsertAffiliateSDK.SetShortCode("PROMO123");
+```
+
+**Important Notes:**
+- `SetShortCode` now validates the short code against the Insert Affiliate API before storing it
+- The callback parameter receives `true` if the code exists and was successfully validated/stored
+- The callback receives `false` if the code doesn't exist or validation fails
+- Validation checks both format (length, alphanumeric) and existence in your affiliate database
+- Use the callback to provide immediate feedback to users about code validity
 
 **Short Code Requirements:**
 - Between **3 and 25 characters**
@@ -709,6 +727,59 @@ public class PromoCodeUI : MonoBehaviour
 - Case insensitive (automatically converted to uppercase)
 
 For more information, visit the [Insert Affiliate Short Codes Documentation](https://docs.insertaffiliate.com/short-codes).
+
+### Getting Affiliate Details
+
+You can retrieve detailed information about an affiliate by their short code or deep link using the `GetAffiliateDetails` method. This is useful for displaying affiliate information to users or showing personalized content based on the referrer.
+
+```csharp
+public class AffiliateInfoDisplay : MonoBehaviour
+{
+    public Text affiliateNameText;
+
+    void Start()
+    {
+        // Get affiliate details for a specific code
+        InsertAffiliateSDK.GetAffiliateDetails("PROMO123", details =>
+        {
+            if (details != null)
+            {
+                Debug.Log($"Affiliate Name: {details.affiliateName}");
+                Debug.Log($"Short Code: {details.affiliateShortCode}");
+                Debug.Log($"Deep Link: {details.deeplinkUrl}");
+
+                // Update UI with affiliate name
+                if (affiliateNameText != null)
+                {
+                    affiliateNameText.text = $"Referred by: {details.affiliateName}";
+                }
+            }
+            else
+            {
+                Debug.Log("Affiliate not found");
+            }
+        });
+    }
+}
+```
+
+**Return Value:**
+
+The callback receives an `AffiliateDetailsPublic` object with:
+- `affiliateName`: The name of the affiliate
+- `affiliateShortCode`: The affiliate's short code
+- `deeplinkUrl`: The affiliate's deep link URL
+
+Returns `null` if:
+- The affiliate code doesn't exist
+- The company code is not initialized
+- There's a network error or API issue
+
+**Important Notes:**
+- This method **does not store or set** the affiliate identifier - it only retrieves information
+- Use `SetShortCode()` to actually associate an affiliate with a user
+- The method automatically strips UUIDs from codes (e.g., "ABC123-uuid" becomes "ABC123")
+- Works with both short codes and deep link URLs
 
 ### Event Tracking (Beta)
 
@@ -965,8 +1036,11 @@ InsertAffiliateSDK.Initialize(
 // Set affiliate from referring link
 InsertAffiliateSDK.SetInsertAffiliateIdentifier(string referringLink, Action<string> callback)
 
-// Set short code
-InsertAffiliateSDK.SetShortCode(string shortCode)
+// Set short code with validation
+InsertAffiliateSDK.SetShortCode(string shortCode, Action<bool> callback = null)
+
+// Get affiliate details
+InsertAffiliateSDK.GetAffiliateDetails(string affiliateCode, Action<AffiliateDetailsPublic> callback)
 
 // Get current affiliate identifier
 string identifier = InsertAffiliateSDK.ReturnInsertAffiliateIdentifier(bool ignoreTimeout = false)
