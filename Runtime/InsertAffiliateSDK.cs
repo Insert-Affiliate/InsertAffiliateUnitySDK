@@ -29,6 +29,7 @@ namespace InsertAffiliate
         private const string KEY_AFFILIATE_ID = "InsertAffiliate_AffiliateId";
         private const string KEY_COMPANY_NAME = "InsertAffiliate_CompanyName";
         private const string KEY_DEEP_LINK_DATA = "InsertAffiliate_DeepLinkData";
+        private const string KEY_SDK_INIT_REPORTED = "InsertAffiliate_SdkInitReported";
 
         // Override token for testing
         private static string overrideAppAccountToken = null;
@@ -40,6 +41,7 @@ namespace InsertAffiliate
         private const string API_TRACK_EVENT = "/v1/trackEvent";
         private const string API_EXPECTED_TRANSACTION = "/v1/api/app-store-webhook/create-expected-transaction";
         private const string API_CHECK_AFFILIATE = "/V1/checkAffiliateExists";
+        private const string API_SDK_INIT = "/V1/onboarding/sdk-init";
 
         // Events
         public static event Action<string> OnAffiliateIdentifierChanged;
@@ -88,6 +90,62 @@ namespace InsertAffiliate
                 Debug.Log($"[Insert Affiliate] Verbose logging: {verboseLogging}");
                 Debug.Log($"[Insert Affiliate] Insert Links enabled: {insertLinksEnabled}");
                 Debug.Log($"[Insert Affiliate] Attribution timeout: {(affiliateAttributionActiveTime.HasValue ? $"{affiliateAttributionActiveTime.Value}s" : "None")}");
+            }
+
+            // Report SDK initialization for onboarding verification (fire and forget)
+            ReportSdkInitIfNeeded();
+        }
+
+        /// <summary>
+        /// Reports SDK initialization to the backend for onboarding verification.
+        /// Only reports once per install to minimize server load.
+        /// </summary>
+        private static void ReportSdkInitIfNeeded()
+        {
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(ReportSdkInitCoroutine());
+        }
+
+        private static IEnumerator ReportSdkInitCoroutine()
+        {
+            // Only report once per install
+            if (PlayerPrefs.GetInt(KEY_SDK_INIT_REPORTED, 0) == 1)
+            {
+                yield break;
+            }
+
+            if (verboseLogging)
+            {
+                Debug.Log("[Insert Affiliate] Reporting SDK initialization for onboarding verification...");
+            }
+
+            var payload = new SdkInitPayload { companyId = companyCode };
+            string jsonPayload = JsonUtility.ToJson(payload);
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonPayload);
+
+            string url = $"{API_BASE_URL}{API_SDK_INIT}";
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    PlayerPrefs.SetInt(KEY_SDK_INIT_REPORTED, 1);
+                    PlayerPrefs.Save();
+
+                    if (verboseLogging)
+                    {
+                        Debug.Log("[Insert Affiliate] SDK initialization reported successfully");
+                    }
+                }
+                else if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] SDK initialization report failed with status: {request.responseCode}");
+                }
             }
         }
 
@@ -1181,6 +1239,12 @@ namespace InsertAffiliate
             public string companyId;
             public string affiliateIdentifier;
             public string appAccountToken;
+        }
+
+        [Serializable]
+        private class SdkInitPayload
+        {
+            public string companyId;
         }
     }
 
