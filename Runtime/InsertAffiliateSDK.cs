@@ -110,6 +110,10 @@ namespace InsertAffiliate
             // Only report once per install
             if (PlayerPrefs.GetInt(KEY_SDK_INIT_REPORTED, 0) == 1)
             {
+                if (verboseLogging)
+                {
+                    Debug.Log("[Insert Affiliate] SDK initialization already reported, skipping");
+                }
                 yield break;
             }
 
