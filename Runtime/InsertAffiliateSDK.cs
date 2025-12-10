@@ -29,6 +29,39 @@ namespace InsertAffiliate
         private const string KEY_AFFILIATE_ID = "InsertAffiliate_AffiliateId";
         private const string KEY_COMPANY_NAME = "InsertAffiliate_CompanyName";
         private const string KEY_DEEP_LINK_DATA = "InsertAffiliate_DeepLinkData";
+        private const string KEY_SDK_INIT_REPORTED = "InsertAffiliate_SdkInitReported";
+        private const string KEY_REPORTED_AFFILIATE_ASSOCIATIONS = "InsertAffiliate_ReportedAssociations";
+
+        /// <summary>
+        /// Source types for affiliate association tracking
+        /// </summary>
+        public enum AffiliateAssociationSource
+        {
+            DeepLinkIos,       // iOS custom URL scheme (ia-companycode://shortcode)
+            DeepLinkAndroid,   // Android deep link with ?insertAffiliate= param
+            UniversalLink,     // Universal/App link
+            ShortCodeManual,   // Developer called SetShortCode()
+            ReferringLink      // Developer called SetInsertAffiliateIdentifier()
+        }
+
+        private static string SourceToString(AffiliateAssociationSource source)
+        {
+            switch (source)
+            {
+                case AffiliateAssociationSource.DeepLinkIos:
+                    return "deep_link_ios";
+                case AffiliateAssociationSource.DeepLinkAndroid:
+                    return "deep_link_android";
+                case AffiliateAssociationSource.UniversalLink:
+                    return "universal_link";
+                case AffiliateAssociationSource.ShortCodeManual:
+                    return "short_code_manual";
+                case AffiliateAssociationSource.ReferringLink:
+                    return "referring_link";
+                default:
+                    return "unknown";
+            }
+        }
 
         // Override token for testing
         private static string overrideAppAccountToken = null;
@@ -40,6 +73,8 @@ namespace InsertAffiliate
         private const string API_TRACK_EVENT = "/v1/trackEvent";
         private const string API_EXPECTED_TRANSACTION = "/v1/api/app-store-webhook/create-expected-transaction";
         private const string API_CHECK_AFFILIATE = "/V1/checkAffiliateExists";
+        private const string API_SDK_INIT = "/V1/onboarding/sdk-init";
+        private const string API_AFFILIATE_ASSOCIATED = "/V1/onboarding/affiliate-associated";
 
         // Events
         public static event Action<string> OnAffiliateIdentifierChanged;
@@ -88,6 +123,180 @@ namespace InsertAffiliate
                 Debug.Log($"[Insert Affiliate] Verbose logging: {verboseLogging}");
                 Debug.Log($"[Insert Affiliate] Insert Links enabled: {insertLinksEnabled}");
                 Debug.Log($"[Insert Affiliate] Attribution timeout: {(affiliateAttributionActiveTime.HasValue ? $"{affiliateAttributionActiveTime.Value}s" : "None")}");
+            }
+
+            // Report SDK initialization for onboarding verification (fire and forget)
+            ReportSdkInitIfNeeded();
+        }
+
+        /// <summary>
+        /// Reports SDK initialization to the backend for onboarding verification.
+        /// Only reports once per install to minimize server load.
+        /// </summary>
+        private static void ReportSdkInitIfNeeded()
+        {
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(ReportSdkInitCoroutine());
+        }
+
+        private static IEnumerator ReportSdkInitCoroutine()
+        {
+            // Only report once per install
+            if (PlayerPrefs.GetInt(KEY_SDK_INIT_REPORTED, 0) == 1)
+            {
+                if (verboseLogging)
+                {
+                    Debug.Log("[Insert Affiliate] SDK initialization already reported, skipping");
+                }
+                yield break;
+            }
+
+            if (verboseLogging)
+            {
+                Debug.Log("[Insert Affiliate] Reporting SDK initialization for onboarding verification...");
+            }
+
+            var payload = new SdkInitPayload { companyId = companyCode };
+            string jsonPayload = JsonUtility.ToJson(payload);
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonPayload);
+
+            string url = $"{API_BASE_URL}{API_SDK_INIT}";
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    PlayerPrefs.SetInt(KEY_SDK_INIT_REPORTED, 1);
+                    PlayerPrefs.Save();
+
+                    if (verboseLogging)
+                    {
+                        Debug.Log("[Insert Affiliate] SDK initialization reported successfully");
+                    }
+                }
+                else if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] SDK initialization report failed with status: {request.responseCode}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Reports a new affiliate association to the backend for tracking.
+        /// Only reports each unique affiliateIdentifier once to prevent duplicates.
+        /// </summary>
+        private static void ReportAffiliateAssociationIfNeeded(string affiliateIdentifier, AffiliateAssociationSource source)
+        {
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(ReportAffiliateAssociationCoroutine(affiliateIdentifier, source));
+        }
+
+        private static IEnumerator ReportAffiliateAssociationCoroutine(string affiliateIdentifier, AffiliateAssociationSource source)
+        {
+            if (string.IsNullOrEmpty(companyCode))
+            {
+                if (verboseLogging)
+                {
+                    Debug.Log("[Insert Affiliate] Cannot report affiliate association: no company code available");
+                }
+                yield break;
+            }
+
+            // Get the set of already-reported affiliate identifiers
+            string reportedAssociationsJson = PlayerPrefs.GetString(KEY_REPORTED_AFFILIATE_ASSOCIATIONS, "[]");
+            List<string> reportedAssociations = new List<string>();
+            try
+            {
+                // Simple JSON array parsing
+                string trimmed = reportedAssociationsJson.Trim('[', ']');
+                if (!string.IsNullOrEmpty(trimmed))
+                {
+                    string[] items = trimmed.Split(',');
+                    foreach (string item in items)
+                    {
+                        string clean = item.Trim().Trim('"');
+                        if (!string.IsNullOrEmpty(clean))
+                        {
+                            reportedAssociations.Add(clean);
+                        }
+                    }
+                }
+            }
+            catch (Exception e)
+            {
+                if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] Error parsing reported associations: {e.Message}");
+                }
+            }
+
+            // Check if this affiliate identifier has already been reported
+            if (reportedAssociations.Contains(affiliateIdentifier))
+            {
+                if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] Affiliate association already reported for: {affiliateIdentifier}, skipping");
+                }
+                yield break;
+            }
+
+            string sourceString = SourceToString(source);
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] Reporting new affiliate association: {affiliateIdentifier} (source: {sourceString})");
+            }
+
+            var payload = new AffiliateAssociationPayload
+            {
+                companyId = companyCode,
+                affiliateIdentifier = affiliateIdentifier,
+                source = sourceString,
+                timestamp = DateTime.UtcNow.ToString("o")
+            };
+
+            string jsonPayload = JsonUtility.ToJson(payload);
+            byte[] bodyRaw = System.Text.Encoding.UTF8.GetBytes(jsonPayload);
+
+            string url = $"{API_BASE_URL}{API_AFFILIATE_ASSOCIATED}";
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(bodyRaw);
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    // Add to reported set and persist
+                    reportedAssociations.Add(affiliateIdentifier);
+
+                    // Build JSON array string
+                    string newJson = "[";
+                    for (int i = 0; i < reportedAssociations.Count; i++)
+                    {
+                        if (i > 0) newJson += ",";
+                        newJson += "\"" + reportedAssociations[i] + "\"";
+                    }
+                    newJson += "]";
+
+                    PlayerPrefs.SetString(KEY_REPORTED_AFFILIATE_ASSOCIATIONS, newJson);
+                    PlayerPrefs.Save();
+
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Affiliate association reported successfully for: {affiliateIdentifier}");
+                    }
+                }
+                else if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] Affiliate association report failed with status: {request.responseCode}");
+                }
             }
         }
 
@@ -411,7 +620,7 @@ namespace InsertAffiliate
                         PlayerPrefs.Save();
 
                         // Store the affiliate identifier
-                        StoreInsertAffiliateIdentifier(shortCode);
+                        StoreInsertAffiliateIdentifier(shortCode, AffiliateAssociationSource.ShortCodeManual);
 
                         callback?.Invoke(true);
                     }
@@ -539,7 +748,7 @@ namespace InsertAffiliate
         /// <summary>
         /// Store the affiliate identifier
         /// </summary>
-        private static void StoreInsertAffiliateIdentifier(string referringLink)
+        private static void StoreInsertAffiliateIdentifier(string referringLink, AffiliateAssociationSource source = AffiliateAssociationSource.ReferringLink)
         {
             string shortDeviceId = GetOrCreateShortUniqueDeviceID();
             string affiliateIdentifier = $"{referringLink}-{shortDeviceId}";
@@ -588,6 +797,9 @@ namespace InsertAffiliate
             {
                 FetchOfferCode(referringLink);
             }
+
+            // Report this new affiliate association to the backend (fire and forget)
+            ReportAffiliateAssociationIfNeeded(affiliateIdentifier, source);
         }
 
         /// <summary>
@@ -969,8 +1181,8 @@ namespace InsertAffiliate
                     Debug.Log($"[Insert Affiliate] Custom URL scheme detected - Short code: {shortCode}");
                 }
 
-                // Fetch deep link data for this short code
-                FetchDeepLinkData(shortCode);
+                // Fetch deep link data for this short code (iOS custom URL scheme)
+                FetchDeepLinkData(shortCode, AffiliateAssociationSource.DeepLinkIos);
                 return true;
             }
             else if (url.Contains("insertaffiliate.link"))
@@ -994,8 +1206,8 @@ namespace InsertAffiliate
                         Debug.LogWarning($"[Insert Affiliate] URL company code ({linkCompanyCode}) doesn't match initialized company code ({companyCode})");
                     }
 
-                    // Fetch deep link data for this short code
-                    FetchDeepLinkData(shortCode);
+                    // Fetch deep link data for this short code (Universal link)
+                    FetchDeepLinkData(shortCode, AffiliateAssociationSource.UniversalLink);
                     return true;
                 }
                 else
@@ -1010,12 +1222,12 @@ namespace InsertAffiliate
         /// <summary>
         /// Fetch deep link data from Insert Affiliate API
         /// </summary>
-        private static void FetchDeepLinkData(string shortCode)
+        private static void FetchDeepLinkData(string shortCode, AffiliateAssociationSource source = AffiliateAssociationSource.ReferringLink)
         {
-            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(FetchDeepLinkDataCoroutine(shortCode));
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(FetchDeepLinkDataCoroutine(shortCode, source));
         }
 
-        private static IEnumerator FetchDeepLinkDataCoroutine(string shortCode)
+        private static IEnumerator FetchDeepLinkDataCoroutine(string shortCode, AffiliateAssociationSource source)
         {
             string url = $"{API_BASE_URL}{API_CHECK_AFFILIATE}";
 
@@ -1084,7 +1296,7 @@ namespace InsertAffiliate
                         PlayerPrefs.Save();
 
                         // Store the affiliate identifier using the short code
-                        StoreInsertAffiliateIdentifier(shortCode);
+                        StoreInsertAffiliateIdentifier(shortCode, source);
                     }
                     else
                     {
@@ -1181,6 +1393,21 @@ namespace InsertAffiliate
             public string companyId;
             public string affiliateIdentifier;
             public string appAccountToken;
+        }
+
+        [Serializable]
+        private class SdkInitPayload
+        {
+            public string companyId;
+        }
+
+        [Serializable]
+        private class AffiliateAssociationPayload
+        {
+            public string companyId;
+            public string affiliateIdentifier;
+            public string source;
+            public string timestamp;
         }
     }
 
