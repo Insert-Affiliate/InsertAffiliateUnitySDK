@@ -921,20 +921,12 @@ namespace InsertAffiliate
         {
             if (!affiliateAttributionActiveTime.HasValue)
             {
-                if (verboseLogging)
-                {
-                    Debug.Log("[Insert Affiliate] No attribution timeout configured");
-                }
                 return null;
             }
 
             DateTime? storedDate = GetAffiliateStoredDate();
             if (!storedDate.HasValue)
             {
-                if (verboseLogging)
-                {
-                    Debug.Log("[Insert Affiliate] No affiliate stored date found");
-                }
                 return null;
             }
 
@@ -944,11 +936,6 @@ namespace InsertAffiliate
             // Convert to Unix timestamp in milliseconds
             DateTimeOffset expiryOffset = new DateTimeOffset(expiryDate, TimeSpan.Zero);
             long expiryTimestamp = expiryOffset.ToUnixTimeMilliseconds();
-
-            if (verboseLogging)
-            {
-                Debug.Log($"[Insert Affiliate] Attribution expires at: {expiryDate:o} ({expiryTimestamp}ms)");
-            }
 
             return expiryTimestamp;
         }
