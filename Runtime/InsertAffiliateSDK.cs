@@ -316,6 +316,7 @@ namespace InsertAffiliate
         /// <summary>
         /// Set a callback to be invoked when the affiliate identifier changes
         /// This is useful for updating your IAP provider attribution dynamically
+        /// When callback is set, it immediately fires with current identifier/offerCode (if any)
         /// </summary>
         /// <param name="callback">Callback that receives the new affiliate identifier and offer code</param>
         public static void SetInsertAffiliateIdentifierChangeCallback(Action<string, string> callback)
@@ -325,6 +326,21 @@ namespace InsertAffiliate
             if (verboseLogging)
             {
                 Debug.Log("[Insert Affiliate] Affiliate identifier change callback registered");
+            }
+
+            // Immediately fire callback with current values (if callback is not null)
+            // This ensures callbacks registered after initialization still receive current state
+            if (callback != null)
+            {
+                string currentIdentifier = ReturnInsertAffiliateIdentifier();
+                string currentOfferCode = string.IsNullOrEmpty(OfferCode) ? null : OfferCode;
+
+                if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] Calling callback immediately with current identifier: {currentIdentifier}, offerCode: {currentOfferCode}");
+                }
+
+                callback(currentIdentifier, currentOfferCode);
             }
         }
 
