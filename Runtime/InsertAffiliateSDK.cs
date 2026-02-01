@@ -18,6 +18,7 @@ namespace InsertAffiliate
         private static bool verboseLogging = false;
         private static bool insertLinksEnabled = false;
         private static float? affiliateAttributionActiveTime = null;
+        private static bool preventAffiliateTransfer = false;
 
         // Storage Keys
         private const string KEY_SHORT_UNIQUE_DEVICE_ID = "InsertAffiliate_ShortUniqueDeviceID";
@@ -77,10 +78,10 @@ namespace InsertAffiliate
         private const string API_AFFILIATE_ASSOCIATED = "/V1/onboarding/affiliate-associated";
 
         // Events
-        public static event Action<string> OnAffiliateIdentifierChanged;
+        public static event Action<string, string> OnAffiliateIdentifierChanged;
 
         // Callback
-        private static Action<string> insertAffiliateIdentifierChangeCallback;
+        private static Action<string, string> insertAffiliateIdentifierChangeCallback;
 
         /// <summary>
         /// Initialize the Insert Affiliate SDK
@@ -89,11 +90,13 @@ namespace InsertAffiliate
         /// <param name="verboseLogging">Enable verbose logging for debugging</param>
         /// <param name="insertLinksEnabled">Enable Insert Links deep linking</param>
         /// <param name="affiliateAttributionActiveTime">Optional attribution timeout in seconds</param>
+        /// <param name="preventAffiliateTransfer">If true, prevents overwriting an existing affiliate with a new one</param>
         public static void Initialize(
             string companyCode,
             bool verboseLogging = false,
             bool insertLinksEnabled = false,
-            float? affiliateAttributionActiveTime = null)
+            float? affiliateAttributionActiveTime = null,
+            bool preventAffiliateTransfer = false)
         {
             if (isInitialized)
             {
@@ -111,6 +114,7 @@ namespace InsertAffiliate
             InsertAffiliateSDK.verboseLogging = verboseLogging;
             InsertAffiliateSDK.insertLinksEnabled = insertLinksEnabled;
             InsertAffiliateSDK.affiliateAttributionActiveTime = affiliateAttributionActiveTime;
+            InsertAffiliateSDK.preventAffiliateTransfer = preventAffiliateTransfer;
 
             isInitialized = true;
 
@@ -123,6 +127,7 @@ namespace InsertAffiliate
                 Debug.Log($"[Insert Affiliate] Verbose logging: {verboseLogging}");
                 Debug.Log($"[Insert Affiliate] Insert Links enabled: {insertLinksEnabled}");
                 Debug.Log($"[Insert Affiliate] Attribution timeout: {(affiliateAttributionActiveTime.HasValue ? $"{affiliateAttributionActiveTime.Value}s" : "None")}");
+                Debug.Log($"[Insert Affiliate] Prevent affiliate transfer: {preventAffiliateTransfer}");
             }
 
             // Report SDK initialization for onboarding verification (fire and forget)
@@ -311,15 +316,31 @@ namespace InsertAffiliate
         /// <summary>
         /// Set a callback to be invoked when the affiliate identifier changes
         /// This is useful for updating your IAP provider attribution dynamically
+        /// When callback is set, it immediately fires with current identifier/offerCode (if any)
         /// </summary>
-        /// <param name="callback">Callback that receives the new affiliate identifier</param>
-        public static void SetInsertAffiliateIdentifierChangeCallback(Action<string> callback)
+        /// <param name="callback">Callback that receives the new affiliate identifier and offer code</param>
+        public static void SetInsertAffiliateIdentifierChangeCallback(Action<string, string> callback)
         {
             insertAffiliateIdentifierChangeCallback = callback;
 
             if (verboseLogging)
             {
                 Debug.Log("[Insert Affiliate] Affiliate identifier change callback registered");
+            }
+
+            // Immediately fire callback with current values (if callback is not null)
+            // This ensures callbacks registered after initialization still receive current state
+            if (callback != null)
+            {
+                string currentIdentifier = ReturnInsertAffiliateIdentifier();
+                string currentOfferCode = string.IsNullOrEmpty(OfferCode) ? null : OfferCode;
+
+                if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] Calling callback immediately with current identifier: {currentIdentifier}, offerCode: {currentOfferCode}");
+                }
+
+                callback(currentIdentifier, currentOfferCode);
             }
         }
 
@@ -765,6 +786,28 @@ namespace InsertAffiliate
                 return;
             }
 
+            // Check for transfer prevention
+            if (preventAffiliateTransfer && !string.IsNullOrEmpty(existingIdentifier))
+            {
+                // Extract the short code from the existing identifier (format: "SHORTCODE-deviceId")
+                string existingShortCode = existingIdentifier.Contains("-")
+                    ? existingIdentifier.Split('-')[0]
+                    : existingIdentifier;
+
+                if (existingShortCode != referringLink)
+                {
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Transfer blocked: existing affiliate \"{existingShortCode}\" protected from being replaced by \"{referringLink}\"");
+                    }
+                    // Fire callback with existing identifier and offer code
+                    string existingOfferCode = PlayerPrefs.GetString(KEY_OFFER_CODE, string.Empty);
+                    OnAffiliateIdentifierChanged?.Invoke(existingIdentifier, string.IsNullOrEmpty(existingOfferCode) ? null : existingOfferCode);
+                    insertAffiliateIdentifierChangeCallback?.Invoke(existingIdentifier, string.IsNullOrEmpty(existingOfferCode) ? null : existingOfferCode);
+                    return;
+                }
+            }
+
             // Store new identifier
             PlayerPrefs.SetString(KEY_INSERT_AFFILIATE_IDENTIFIER, affiliateIdentifier);
 
@@ -786,16 +829,21 @@ namespace InsertAffiliate
                 Debug.Log($"[Insert Affiliate] Stored date: {timestamp}");
             }
 
-            // Notify listeners
-            OnAffiliateIdentifierChanged?.Invoke(affiliateIdentifier);
-
-            // Notify callback
-            insertAffiliateIdentifierChangeCallback?.Invoke(affiliateIdentifier);
-
-            // Auto-fetch offer code for short codes
+            // Auto-fetch offer code for short codes, then notify listeners with both values
             if (IsShortCode(referringLink))
             {
-                FetchOfferCode(referringLink);
+                FetchOfferCode(referringLink, (fetchedOfferCode) =>
+                {
+                    // Notify listeners with both identifier and offer code
+                    OnAffiliateIdentifierChanged?.Invoke(affiliateIdentifier, fetchedOfferCode);
+                    insertAffiliateIdentifierChangeCallback?.Invoke(affiliateIdentifier, fetchedOfferCode);
+                });
+            }
+            else
+            {
+                // Notify listeners without offer code
+                OnAffiliateIdentifierChanged?.Invoke(affiliateIdentifier, null);
+                insertAffiliateIdentifierChangeCallback?.Invoke(affiliateIdentifier, null);
             }
 
             // Report this new affiliate association to the backend (fire and forget)
@@ -879,6 +927,33 @@ namespace InsertAffiliate
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// Get the Unix timestamp (in milliseconds) when the affiliate attribution expires.
+        /// Returns null if no attribution timeout is configured or no affiliate is stored.
+        /// </summary>
+        public static long? GetAffiliateExpiryTimestamp()
+        {
+            if (!affiliateAttributionActiveTime.HasValue)
+            {
+                return null;
+            }
+
+            DateTime? storedDate = GetAffiliateStoredDate();
+            if (!storedDate.HasValue)
+            {
+                return null;
+            }
+
+            // Calculate expiry time: storedDate + timeout
+            DateTime expiryDate = storedDate.Value.AddSeconds(affiliateAttributionActiveTime.Value);
+
+            // Convert to Unix timestamp in milliseconds
+            DateTimeOffset expiryOffset = new DateTimeOffset(expiryDate, TimeSpan.Zero);
+            long expiryTimestamp = expiryOffset.ToUnixTimeMilliseconds();
+
+            return expiryTimestamp;
         }
 
         /// <summary>
@@ -1031,12 +1106,14 @@ namespace InsertAffiliate
         /// <summary>
         /// Fetch offer code for an affiliate link
         /// </summary>
-        private static void FetchOfferCode(string affiliateLink)
+        /// <param name="affiliateLink">The affiliate short code</param>
+        /// <param name="callback">Optional callback that receives the offer code (null if not found)</param>
+        private static void FetchOfferCode(string affiliateLink, Action<string> callback = null)
         {
-            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(FetchOfferCodeCoroutine(affiliateLink));
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(FetchOfferCodeCoroutine(affiliateLink, callback));
         }
 
-        private static IEnumerator FetchOfferCodeCoroutine(string affiliateLink)
+        private static IEnumerator FetchOfferCodeCoroutine(string affiliateLink, Action<string> callback)
         {
             string encodedLink = UnityWebRequest.EscapeURL(affiliateLink);
 
@@ -1064,6 +1141,7 @@ namespace InsertAffiliate
                     {
                         Debug.Log($"[Insert Affiliate] No offer code found for: {affiliateLink}");
                     }
+                    callback?.Invoke(null);
                     yield break;
                 }
 
@@ -1077,6 +1155,7 @@ namespace InsertAffiliate
                     {
                         Debug.Log("[Insert Affiliate] Offer code not found");
                     }
+                    callback?.Invoke(null);
                     yield break;
                 }
 
@@ -1087,6 +1166,8 @@ namespace InsertAffiliate
                 {
                     Debug.Log($"[Insert Affiliate] Offer code stored: {offerCode}");
                 }
+
+                callback?.Invoke(offerCode);
             }
         }
 

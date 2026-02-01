@@ -94,7 +94,7 @@ Insert Affiliate requires a Receipt Verification platform to validate in-app pur
 
 #### Code Setup
 
-First, install the [RevenueCat Unity SDK](https://docs.revenuecat.com/docs/unity). Then set up attribution:
+First, install the [RevenueCat Unity SDK](https://docs.revenuecat.com/docs/unity). Then set up attribution using RevenueCat Targeting:
 
 ```csharp
 using InsertAffiliate;
@@ -105,37 +105,92 @@ public class IAPManager : MonoBehaviour
 {
     void Start()
     {
-        InsertAffiliateSDK.Initialize("your_company_code", verboseLogging: true);
+        // Initialize with 7-day timeout (604800 seconds)
+        InsertAffiliateSDK.Initialize(
+            companyCode: "your_company_code",
+            verboseLogging: true,
+            affiliateAttributionActiveTime: 604800f  // 7 days
+        );
 
         var purchases = GetComponent<Purchases>();
         purchases.revenueCatAPIKeyApple = "your_revenuecat_api_key";
 
-        UpdateRevenueCatAttribution();
-
-        InsertAffiliateSDK.SetInsertAffiliateIdentifierChangeCallback((identifier) =>
+        // Set up callback for when affiliate changes
+        InsertAffiliateSDK.SetInsertAffiliateIdentifierChangeCallback((identifier, offerCode) =>
         {
             if (!string.IsNullOrEmpty(identifier))
             {
-                UpdateRevenueCatAttribution();
+                UpdateRevenueCatAttribution(identifier, offerCode);
             }
         });
+
+        // Check for existing affiliate on startup
+        string existingId = InsertAffiliateSDK.ReturnInsertAffiliateIdentifier();
+        if (!string.IsNullOrEmpty(existingId))
+        {
+            UpdateRevenueCatAttribution(existingId, InsertAffiliateSDK.OfferCode);
+        }
     }
 
-    void UpdateRevenueCatAttribution()
+    async void UpdateRevenueCatAttribution(string affiliateId, string offerCode)
     {
-        string affiliateId = InsertAffiliateSDK.ReturnInsertAffiliateIdentifier();
-        if (!string.IsNullOrEmpty(affiliateId))
+        // OPTIONAL: Prevent attribution for existing subscribers
+        // Uncomment to ensure affiliates only earn from users they actually brought:
+        // var customerInfo = await Purchases.shared.GetCustomerInfo();
+        // if (customerInfo.Entitlements.Active.Count > 0) return; // Already subscribed
+
+        var attributes = new Dictionary<string, string>
         {
-            var attributes = new Dictionary<string, string>
-            {
-                { "insert_affiliate", affiliateId }
-            };
-            Purchases.shared.SetAttributes(attributes);
-            Debug.Log($"[IAP] RevenueCat attribution set: {affiliateId}");
+            { "insert_affiliate", affiliateId }
+        };
+
+        // Add expiry timestamp for RevenueCat targeting rules
+        long? expiryTimestamp = InsertAffiliateSDK.GetAffiliateExpiryTimestamp();
+        if (expiryTimestamp.HasValue)
+        {
+            attributes["insert_timedout"] = expiryTimestamp.Value.ToString();
         }
+
+        // Add offer code for RevenueCat targeting (shows different offerings based on affiliate)
+        if (!string.IsNullOrEmpty(offerCode))
+        {
+            attributes["affiliateOfferCode"] = offerCode;
+        }
+
+        Purchases.shared.SetAttributes(attributes);
+
+        // IMPORTANT: Sync attributes AND reload offerings for targeting to work
+        // Offerings must be fetched AFTER sync completes to get targeted offering
+        await Purchases.shared.SyncAttributesAndOfferingsIfNeeded();
+
+        // Now fetch offerings - targeting will return the correct offering based on affiliateOfferCode
+        var offerings = await Purchases.shared.GetOfferings();
+        if (offerings.Current != null)
+        {
+            Debug.Log($"[IAP] Current offering (with targeting): {offerings.Current.Identifier}");
+            // Use offerings.Current.AvailablePackages to display products
+        }
+
+        Debug.Log($"[IAP] RevenueCat attribution set: {affiliateId}, offerCode: {offerCode}");
     }
 }
 ```
+
+#### Using RevenueCat Targeting
+
+RevenueCat Targeting automatically shows different offerings based on user attributes. The flow is:
+
+1. **Set attributes** (`affiliateOfferCode`, etc.)
+2. **Call `SyncAttributesAndOfferingsIfNeeded()`** - syncs attributes to RevenueCat
+3. **Call `GetOfferings()` AFTER sync completes** - returns the targeted offering
+
+**Setup in RevenueCat Dashboard:**
+1. Go to **Targeting** in RevenueCat dashboard
+2. Create a rule: `affiliateOfferCode` is any of `["oneWeekFree"]`
+3. Assign the offering (e.g., `oneMonthSubscription_oneWeekFree`)
+4. Save
+
+**Important:** Always fetch offerings AFTER `SyncAttributesAndOfferingsIfNeeded()` completes. If you fetch before sync, you'll get the default offering instead of the targeted one.
 
 #### Webhook Setup
 
@@ -673,9 +728,37 @@ InsertAffiliateSDK.Initialize(
 bool isValid = InsertAffiliateSDK.IsAffiliateAttributionValid();
 DateTime? storedDate = InsertAffiliateSDK.GetAffiliateStoredDate();
 
+// Get the Unix timestamp (ms) when attribution expires
+long? expiryTimestamp = InsertAffiliateSDK.GetAffiliateExpiryTimestamp();
+
 // Get identifier ignoring timeout (for debugging)
 string rawIdentifier = InsertAffiliateSDK.ReturnInsertAffiliateIdentifier(ignoreTimeout: true);
 ```
+
+</details>
+
+<details>
+<summary><strong>Prevent Affiliate Transfer</strong></summary>
+
+By default, if a user clicks a new affiliate link, their attribution is updated to the new affiliate. Enable `preventAffiliateTransfer` to lock the first affiliate:
+
+```csharp
+InsertAffiliateSDK.Initialize(
+    companyCode: "your_company_code",
+    preventAffiliateTransfer: true  // Lock first affiliate
+);
+```
+
+**How it works:**
+- When enabled, once a user is attributed to an affiliate, that attribution is locked
+- New affiliate links will not overwrite the existing attribution
+- The callback still fires with the existing affiliate data (not the new one)
+- Useful for preventing "affiliate stealing" where users click competitor links
+
+**Example scenario:**
+1. User clicks Affiliate A's link → attributed to Affiliate A
+2. User later clicks Affiliate B's link → still attributed to Affiliate A (blocked)
+3. Affiliate A gets credit for any purchases
 
 </details>
 
@@ -766,7 +849,8 @@ InsertAffiliateSDK.Initialize(
     string companyCode,
     bool verboseLogging = false,
     bool insertLinksEnabled = false,
-    float? affiliateAttributionActiveTime = null
+    float? affiliateAttributionActiveTime = null,
+    bool preventAffiliateTransfer = false
 )
 ```
 
@@ -790,6 +874,9 @@ bool isValid = InsertAffiliateSDK.IsAffiliateAttributionValid()
 
 // Get stored date
 DateTime? date = InsertAffiliateSDK.GetAffiliateStoredDate()
+
+// Get expiry timestamp (ms) - returns null if no timeout configured
+long? expiryTimestamp = InsertAffiliateSDK.GetAffiliateExpiryTimestamp()
 ```
 
 ### Features
@@ -805,14 +892,20 @@ string offerCode = InsertAffiliateSDK.OfferCode
 bool isInit = InsertAffiliateSDK.IsInitialized()
 ```
 
-### Events
+### Events & Callbacks
 
 ```csharp
-// Subscribe to affiliate identifier changes
-InsertAffiliateSDK.OnAffiliateIdentifierChanged += (identifier) =>
+// Subscribe to affiliate identifier changes (includes offer code)
+InsertAffiliateSDK.OnAffiliateIdentifierChanged += (identifier, offerCode) =>
 {
-    Debug.Log($"Affiliate changed: {identifier}");
+    Debug.Log($"Affiliate changed: {identifier}, offer: {offerCode}");
 };
+
+// Set callback for affiliate changes (includes offer code)
+InsertAffiliateSDK.SetInsertAffiliateIdentifierChangeCallback((identifier, offerCode) =>
+{
+    Debug.Log($"Callback: {identifier}, offer: {offerCode}");
+});
 ```
 
 ---
