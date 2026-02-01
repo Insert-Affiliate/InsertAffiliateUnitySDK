@@ -737,8 +737,7 @@ string rawIdentifier = InsertAffiliateSDK.ReturnInsertAffiliateIdentifier(ignore
 
 </details>
 
-<details>
-<summary><strong>Prevent Affiliate Transfer</strong></summary>
+### Prevent Affiliate Transfer
 
 By default, if a user clicks a new affiliate link, their attribution is updated to the new affiliate. Enable `preventAffiliateTransfer` to lock the first affiliate:
 
@@ -760,7 +759,7 @@ InsertAffiliateSDK.Initialize(
 2. User later clicks Affiliate B's link → still attributed to Affiliate A (blocked)
 3. Affiliate A gets credit for any purchases
 
-</details>
+Learn more: [Prevent Affiliate Transfer Documentation](https://docs.insertaffiliate.com/prevent-affiliate-transfer)
 
 <details>
 <summary><strong>Verbose Logging</strong></summary>
