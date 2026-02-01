@@ -159,8 +159,17 @@ public class IAPManager : MonoBehaviour
 
         Purchases.shared.SetAttributes(attributes);
 
-        // IMPORTANT: Sync attributes for targeting to work
+        // IMPORTANT: Sync attributes AND reload offerings for targeting to work
+        // Offerings must be fetched AFTER sync completes to get targeted offering
         await Purchases.shared.SyncAttributesAndOfferingsIfNeeded();
+
+        // Now fetch offerings - targeting will return the correct offering based on affiliateOfferCode
+        var offerings = await Purchases.shared.GetOfferings();
+        if (offerings.Current != null)
+        {
+            Debug.Log($"[IAP] Current offering (with targeting): {offerings.Current.Identifier}");
+            // Use offerings.Current.AvailablePackages to display products
+        }
 
         Debug.Log($"[IAP] RevenueCat attribution set: {affiliateId}, offerCode: {offerCode}");
     }
@@ -169,14 +178,19 @@ public class IAPManager : MonoBehaviour
 
 #### Using RevenueCat Targeting
 
-Instead of manually switching product IDs, use RevenueCat's Targeting feature to automatically show different offerings based on the `affiliateOfferCode` attribute:
+RevenueCat Targeting automatically shows different offerings based on user attributes. The flow is:
 
-1. In RevenueCat dashboard, go to **Targeting**
-2. Create targeting rules based on `affiliateOfferCode` custom attribute
-3. Assign different Offerings to each rule
-4. The SDK automatically shows the correct offering when `affiliateOfferCode` is set
+1. **Set attributes** (`affiliateOfferCode`, etc.)
+2. **Call `SyncAttributesAndOfferingsIfNeeded()`** - syncs attributes to RevenueCat
+3. **Call `GetOfferings()` AFTER sync completes** - returns the targeted offering
 
-This approach is cleaner than manual product ID switching and allows you to manage offers from the RevenueCat dashboard.
+**Setup in RevenueCat Dashboard:**
+1. Go to **Targeting** in RevenueCat dashboard
+2. Create a rule: `affiliateOfferCode` is any of `["oneWeekFree"]`
+3. Assign the offering (e.g., `oneMonthSubscription_oneWeekFree`)
+4. Save
+
+**Important:** Always fetch offerings AFTER `SyncAttributesAndOfferingsIfNeeded()` completes. If you fetch before sync, you'll get the default offering instead of the targeted one.
 
 #### Webhook Setup
 
