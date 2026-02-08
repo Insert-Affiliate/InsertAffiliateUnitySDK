@@ -598,7 +598,8 @@ namespace InsertAffiliate
             var payload = new CheckAffiliatePayload
             {
                 companyId = companyCode,
-                affiliateCode = shortCode
+                affiliateCode = shortCode,
+                trackUsage = true
             };
 
             string jsonPayload = JsonUtility.ToJson(payload);
@@ -1450,6 +1451,7 @@ namespace InsertAffiliate
         {
             public string companyId;
             public string affiliateCode;
+            public bool trackUsage;
         }
 
         [Serializable]
