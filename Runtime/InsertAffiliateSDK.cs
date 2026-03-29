@@ -1147,10 +1147,12 @@ namespace InsertAffiliate
                 }
 
                 string rawOfferCode = request.downloadHandler.text.Trim();
-                string offerCode = RemoveSpecialCharacters(rawOfferCode);
 
-                // Check for error responses
-                if (offerCode.Contains("error") || offerCode.Contains("notfound") || offerCode.Contains("Routenotfound"))
+                // Check for error responses before cleaning
+                if (rawOfferCode.Contains("errorofferCodeNotFound") ||
+                    rawOfferCode.Contains("errorAffiliateoffercodenotfoundinanycompany") ||
+                    rawOfferCode.Contains("errorAffiliateoffercodenotfoundinanycompanyAffiliatelinkwas") ||
+                    rawOfferCode.Contains("Routenotfound"))
                 {
                     if (verboseLogging)
                     {
@@ -1160,6 +1162,7 @@ namespace InsertAffiliate
                     yield break;
                 }
 
+                string offerCode = RemoveSpecialCharacters(rawOfferCode);
                 PlayerPrefs.SetString(KEY_OFFER_CODE, offerCode);
                 PlayerPrefs.Save();
 
@@ -1423,7 +1426,7 @@ namespace InsertAffiliate
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
             foreach (char c in str)
             {
-                if (char.IsLetterOrDigit(c) || c == '_')
+                if (char.IsLetterOrDigit(c) || c == '_' || c == '-')
                 {
                     sb.Append(c);
                 }

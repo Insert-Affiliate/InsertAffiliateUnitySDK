@@ -5,6 +5,13 @@ All notable changes to the Insert Affiliate Unity SDK will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.1] - 2026-03-29
+
+### Fixed
+- **Offer code sanitization** - Fixed offer codes with dashes/underscores being stripped (e.g. `pro-v3-ext` was incorrectly becoming `prov3ext`)
+  - Now checks for API error responses before cleaning the offer code
+  - Sanitization regex updated to preserve dashes and underscores
+
 ## [1.1.0] - 2025-11-23
 
 ### Added
