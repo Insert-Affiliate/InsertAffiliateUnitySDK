@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Runtime.InteropServices;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -32,17 +33,42 @@ namespace InsertAffiliate
         private const string KEY_DEEP_LINK_DATA = "InsertAffiliate_DeepLinkData";
         private const string KEY_SDK_INIT_REPORTED = "InsertAffiliate_SdkInitReported";
         private const string KEY_REPORTED_AFFILIATE_ASSOCIATIONS = "InsertAffiliate_ReportedAssociations";
+        private const string KEY_SYSTEM_INFO_SENT = "InsertAffiliate_SystemInfoSent";
 
-        /// <summary>
-        /// Source types for affiliate association tracking
-        /// </summary>
+#if UNITY_IOS
+        [DllImport("__Internal")]
+        private static extern string _InsertAffiliate_GetIOSVersion();
+#endif
+
+        private static string GetNativeOSVersion()
+        {
+#if UNITY_IOS
+            try
+            {
+                string nativeVersion = _InsertAffiliate_GetIOSVersion();
+                if (verboseLogging) Debug.Log($"[Insert Affiliate] Native iOS version: {nativeVersion}");
+                if (!string.IsNullOrEmpty(nativeVersion)) return nativeVersion;
+            }
+            catch (System.Exception e)
+            {
+                if (verboseLogging) Debug.Log($"[Insert Affiliate] Native version call failed: {e.GetType().Name}: {e.Message}");
+            }
+#endif
+            string os = SystemInfo.operatingSystem;
+            if (verboseLogging) Debug.Log($"[Insert Affiliate] Fallback OS string: {os}");
+            var m = System.Text.RegularExpressions.Regex.Match(os, @"[\d]+\.[\d]+\.?[\d]*");
+            return m.Success ? m.Value : os;
+        }
+
+
         public enum AffiliateAssociationSource
         {
             DeepLinkIos,       // iOS custom URL scheme (ia-companycode://shortcode)
             DeepLinkAndroid,   // Android deep link with ?insertAffiliate= param
             UniversalLink,     // Universal/App link
             ShortCodeManual,   // Developer called SetShortCode()
-            ReferringLink      // Developer called SetInsertAffiliateIdentifier()
+            ReferringLink,     // Developer called SetInsertAffiliateIdentifier()
+            InsertLinksMatch   // Backend fingerprint match from Insert Links detection
         }
 
         private static string SourceToString(AffiliateAssociationSource source)
@@ -59,6 +85,8 @@ namespace InsertAffiliate
                     return "short_code_manual";
                 case AffiliateAssociationSource.ReferringLink:
                     return "referring_link";
+                case AffiliateAssociationSource.InsertLinksMatch:
+                    return "clipboard_match";
                 default:
                     return "unknown";
             }
@@ -130,8 +158,12 @@ namespace InsertAffiliate
                 Debug.Log($"[Insert Affiliate] Prevent affiliate transfer: {preventAffiliateTransfer}");
             }
 
-            // Report SDK initialization for onboarding verification (fire and forget)
             ReportSdkInitIfNeeded();
+
+            if (insertLinksEnabled)
+            {
+                SendInsertLinksDetectionIfNeeded();
+            }
         }
 
         /// <summary>
@@ -195,6 +227,192 @@ namespace InsertAffiliate
         /// Reports a new affiliate association to the backend for tracking.
         /// Only reports each unique affiliateIdentifier once to prevent duplicates.
         /// </summary>
+        private static void SendInsertLinksDetectionIfNeeded()
+        {
+            if (PlayerPrefs.GetInt(KEY_SYSTEM_INFO_SENT, 0) == 1)
+            {
+                if (verboseLogging)
+                {
+                    Debug.Log("[Insert Affiliate] Insert Links detection already sent, skipping");
+                }
+                return;
+            }
+
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(SendInsertLinksDetectionCoroutine());
+        }
+
+        [System.Serializable]
+        private class InsertLinksDetectionPayload
+        {
+            public string systemName;
+            public string systemVersion;
+            public string model;
+            public string localizedModel;
+            public bool isPhysicalDevice;
+            public string bundleId;
+            public string deviceType;
+            public string requestTime;
+            public long requestTimestamp;
+            public string userAgent;
+            public int screenWidth;
+            public int screenHeight;
+            public int screenAvailWidth;
+            public int screenAvailHeight;
+            public float devicePixelRatio;
+            public int screenColorDepth;
+            public int screenPixelDepth;
+            public int maxTouchPoints;
+            public string platform;
+            public string os;
+            public string osVersion;
+            public string browserVersion;
+            public string timezone;
+            public string language;
+            public string country;
+        }
+
+        [System.Serializable]
+        private class InsertLinksDetectionResponse
+        {
+            public bool matchFound;
+            public string matched_affiliate_shortCode;
+        }
+
+        private static IEnumerator SendInsertLinksDetectionCoroutine()
+        {
+            if (verboseLogging)
+            {
+                Debug.Log("[Insert Affiliate] Collecting system info for Insert Links detection...");
+            }
+
+            var payload = new InsertLinksDetectionPayload();
+
+#if UNITY_IOS
+            payload.systemName = "iOS";
+            payload.platform = "iOS";
+            payload.os = "iOS";
+            payload.deviceType = "mobile";
+#elif UNITY_ANDROID
+            payload.systemName = "Android";
+            payload.platform = "Android";
+            payload.os = "Android";
+            payload.deviceType = "mobile";
+#else
+            payload.systemName = SystemInfo.operatingSystem;
+            payload.platform = Application.platform.ToString();
+            payload.os = SystemInfo.operatingSystem;
+            payload.deviceType = "unknown";
+#endif
+
+            string osVersionClean = GetNativeOSVersion();
+
+            payload.systemVersion = osVersionClean;
+            payload.model = SystemInfo.deviceModel;
+            payload.localizedModel = SystemInfo.deviceModel;
+            payload.isPhysicalDevice = !Application.isEditor;
+            payload.bundleId = Application.identifier;
+            payload.osVersion = osVersionClean;
+            payload.browserVersion = osVersionClean;
+
+            var now = System.DateTimeOffset.UtcNow;
+            payload.requestTime = now.ToString("o");
+            payload.requestTimestamp = now.ToUnixTimeMilliseconds();
+
+            payload.userAgent = $"{SystemInfo.deviceModel}; {payload.systemName} {osVersionClean}";
+
+            payload.screenWidth = Screen.width;
+            payload.screenHeight = Screen.height;
+            payload.screenAvailWidth = Screen.width;
+            payload.screenAvailHeight = Screen.height;
+            payload.devicePixelRatio = Screen.dpi / 160f;
+            payload.screenColorDepth = 24;
+            payload.screenPixelDepth = 24;
+            payload.maxTouchPoints = 5;
+
+            try
+            {
+                var tz = System.TimeZoneInfo.Local;
+                payload.timezone = tz.StandardName == "Local" ? tz.BaseUtcOffset.ToString() : tz.Id;
+            }
+            catch
+            {
+                payload.timezone = "Unknown";
+            }
+
+            try
+            {
+                string locale = System.Globalization.CultureInfo.CurrentCulture.Name;
+                payload.language = locale;
+                string[] parts = locale.Split('-');
+                if (parts.Length >= 2)
+                    payload.country = parts[parts.Length - 1];
+            }
+            catch
+            {
+                payload.language = "en";
+            }
+
+            string jsonPayload = JsonUtility.ToJson(payload);
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] Insert Links detection payload: {jsonPayload}");
+            }
+
+            string url = "https://insertaffiliate.link/V1/appDeepLinkEvents";
+
+            using (UnityWebRequest request = new UnityWebRequest(url, "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(jsonPayload));
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    PlayerPrefs.SetInt(KEY_SYSTEM_INFO_SENT, 1);
+                    PlayerPrefs.Save();
+
+                    string responseText = request.downloadHandler.text;
+
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Insert Links detection response: {responseText}");
+                    }
+
+                    try
+                    {
+                        var response = JsonUtility.FromJson<InsertLinksDetectionResponse>(responseText);
+                        if (response != null && response.matchFound && !string.IsNullOrEmpty(response.matched_affiliate_shortCode))
+                        {
+                            if (verboseLogging)
+                            {
+                                Debug.Log($"[Insert Affiliate] Insert Links match found: {response.matched_affiliate_shortCode}");
+                            }
+
+                            StoreInsertAffiliateIdentifier(response.matched_affiliate_shortCode, AffiliateAssociationSource.InsertLinksMatch);
+                            FetchOfferCode(response.matched_affiliate_shortCode);
+                        }
+                    }
+                    catch (System.Exception e)
+                    {
+                        if (verboseLogging)
+                        {
+                            Debug.Log($"[Insert Affiliate] Error parsing detection response: {e.Message}");
+                        }
+                    }
+                }
+                else
+                {
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Insert Links detection failed: {request.responseCode}");
+                    }
+                }
+            }
+        }
+
         private static void ReportAffiliateAssociationIfNeeded(string affiliateIdentifier, AffiliateAssociationSource source)
         {
             InsertAffiliateCoroutineRunner.Instance.StartCoroutine(ReportAffiliateAssociationCoroutine(affiliateIdentifier, source));
@@ -951,7 +1169,10 @@ namespace InsertAffiliate
             DateTime expiryDate = storedDate.Value.AddSeconds(affiliateAttributionActiveTime.Value);
 
             // Convert to Unix timestamp in milliseconds
-            DateTimeOffset expiryOffset = new DateTimeOffset(expiryDate, TimeSpan.Zero);
+            DateTime utcExpiry = expiryDate.Kind == DateTimeKind.Utc
+                ? expiryDate
+                : expiryDate.ToUniversalTime();
+            DateTimeOffset expiryOffset = new DateTimeOffset(utcExpiry, TimeSpan.Zero);
             long expiryTimestamp = expiryOffset.ToUnixTimeMilliseconds();
 
             return expiryTimestamp;
@@ -1256,42 +1477,76 @@ namespace InsertAffiliate
             }
 
             // Parse and handle the URL
-            if (url.StartsWith("ia-"))
+            if (url.StartsWith("ia-") || url.Contains("://insert-affiliate"))
             {
-                // Custom URL scheme: ia-companycode://shortcode
-                string shortCode = url.Substring(url.LastIndexOf("://") + 3).ToUpper();
+                // Custom URL scheme formats:
+                //   ia-companycode://shortcode (legacy)
+                //   ia-companycode://insert-affiliate?code=shortcode (new)
+                string afterScheme = url.Substring(url.LastIndexOf("://") + 3);
+                string shortCode = null;
+
+                if (afterScheme.StartsWith("insert-affiliate"))
+                {
+                    int codeIndex = afterScheme.IndexOf("code=");
+                    if (codeIndex >= 0)
+                    {
+                        shortCode = afterScheme.Substring(codeIndex + 5);
+                        int ampIndex = shortCode.IndexOf('&');
+                        if (ampIndex >= 0) shortCode = shortCode.Substring(0, ampIndex);
+                    }
+                }
+
+                if (string.IsNullOrEmpty(shortCode))
+                {
+                    shortCode = afterScheme;
+                }
+
+                shortCode = shortCode.Trim('/').ToUpper();
 
                 if (verboseLogging)
                 {
                     Debug.Log($"[Insert Affiliate] Custom URL scheme detected - Short code: {shortCode}");
                 }
 
-                // Fetch deep link data for this short code (iOS custom URL scheme)
                 FetchDeepLinkData(shortCode, AffiliateAssociationSource.DeepLinkIos);
                 return true;
             }
             else if (url.Contains("insertaffiliate.link"))
             {
-                // Universal link: https://insertaffiliate.link/V1/companycode/shortcode
+                // Universal link formats:
+                //   https://insertaffiliate.link/companycode/shortcode
+                //   https://insertaffiliate.link/V1/companycode/shortcode (legacy)
                 string[] pathComponents = url.Split('/');
+                string linkCompanyCode = null;
+                string shortCode = null;
 
                 if (pathComponents.Length >= 6 && pathComponents[3] == "V1")
                 {
-                    string linkCompanyCode = pathComponents[4];
-                    string shortCode = pathComponents[5].ToUpper();
+                    linkCompanyCode = pathComponents[4];
+                    shortCode = pathComponents[5];
+                }
+                else if (pathComponents.Length >= 5)
+                {
+                    linkCompanyCode = pathComponents[3];
+                    shortCode = pathComponents[4];
+                }
+
+                if (!string.IsNullOrEmpty(shortCode))
+                {
+                    int queryIndex = shortCode.IndexOf('?');
+                    if (queryIndex >= 0) shortCode = shortCode.Substring(0, queryIndex);
+                    shortCode = shortCode.ToUpper();
 
                     if (verboseLogging)
                     {
                         Debug.Log($"[Insert Affiliate] Universal link detected - Company: {linkCompanyCode}, Short code: {shortCode}");
                     }
 
-                    // Validate company code matches
-                    if (!string.IsNullOrEmpty(companyCode) && linkCompanyCode.ToLower() != companyCode.ToLower())
+                    if (!string.IsNullOrEmpty(companyCode) && !string.IsNullOrEmpty(linkCompanyCode) && linkCompanyCode.ToLower() != companyCode.ToLower())
                     {
                         Debug.LogWarning($"[Insert Affiliate] URL company code ({linkCompanyCode}) doesn't match initialized company code ({companyCode})");
                     }
 
-                    // Fetch deep link data for this short code (Universal link)
                     FetchDeepLinkData(shortCode, AffiliateAssociationSource.UniversalLink);
                     return true;
                 }
