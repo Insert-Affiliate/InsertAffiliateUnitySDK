@@ -5,6 +5,25 @@ All notable changes to the Insert Affiliate Unity SDK will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-05-16
+
+### Added
+- **Insert Links** - Built-in deep linking solution, no third-party SDK required
+  - iOS: Universal Links, custom URL schemes, clipboard UUID matching, fingerprint detection
+  - Android: App Links, Google Play Install Referrer, `?insertAffiliate=` query param
+  - Custom domain universal/app link support
+  - Deferred deep linking via probabilistic device fingerprint matching
+- **Native iOS plugin** for real iOS version detection and clipboard access
+- **Native Android plugin** for Google Play Install Referrer capture
+- **`insertLinksClipboardEnabled` parameter** in `Initialize()` for clipboard-based attribution
+- **`HandleInsertLinks()` method** for routing deep link URLs through Insert Links
+- **Country field** sent in detection payload for improved matching accuracy
+
+### Fixed
+- Custom URL scheme parsing for new format (`ia-companycode://insert-affiliate?code=SHORTCODE`)
+- Universal link parsing for non-V1 format (`insertaffiliate.link/companycode/shortcode`)
+- `DateTimeOffset` crash in `GetAffiliateExpiryTimestamp()` when DateTime.Kind is Local
+
 ## [1.3.1] - 2026-03-29
 
 ### Fixed
