@@ -46,7 +46,9 @@ public class GameManager : MonoBehaviour
     {
         InsertAffiliateSDK.Initialize(
             companyCode: "your_company_code_here",
-            verboseLogging: true // Enable for debugging
+            verboseLogging: true,
+            insertLinksEnabled: true,
+            insertLinksClipboardEnabled: true
         );
     }
 }
@@ -519,17 +521,33 @@ public class IapticManager : MonoBehaviour
 
 ### Choose Your Deep Linking Platform
 
-Insert Affiliate requires a Deep Linking platform to create links for your affiliates:
+Insert Affiliate supports multiple deep linking options:
 
 | Platform | Best For | Guide |
 |----------|----------|-------|
+| **Insert Links (Recommended)** | Built-in deep linking with automatic attribution | [Setup below](#insert-links-setup) |
 | Branch.io | Full-featured deep linking with analytics | [View Guide](docs/deep-linking-branch.md) |
 | AppsFlyer | Marketing attribution with deep linking | [View Guide](docs/deep-linking-appsflyer.md) |
 | Other Providers | Custom deep linking solutions | [Basic Setup](#basic-deep-link-handling) |
 
-> ⚠️ **Note:** Insert Links (our built-in deep linking solution) is not currently supported in the Unity SDK. Please use one of the third-party deep linking options above. Contact michael@insertaffiliate.com if you need Insert Links support for Unity.
+### Insert Links Setup
 
-### Basic Deep Link Handling
+Insert Links is our built-in deep linking solution. It supports Universal Links (iOS), App Links (Android), custom URL schemes, clipboard matching, fingerprint-based deferred deep linking, and Google Play Install Referrer.
+
+#### 1. Enable Insert Links in SDK Initialization
+
+```csharp
+InsertAffiliateSDK.Initialize(
+    companyCode: "your_company_code_here",
+    verboseLogging: true,
+    insertLinksEnabled: true,
+    insertLinksClipboardEnabled: true,
+    affiliateAttributionActiveTime: 604800f,
+    preventAffiliateTransfer: true
+);
+```
+
+#### 2. Handle Deep Links
 
 ```csharp
 using InsertAffiliate;
@@ -538,20 +556,85 @@ public class DeepLinkManager : MonoBehaviour
 {
     void Start()
     {
+        Application.deepLinkActivated += OnDeepLinkActivated;
+
         if (!string.IsNullOrEmpty(Application.absoluteURL))
         {
-            HandleDeepLink(Application.absoluteURL);
+            OnDeepLinkActivated(Application.absoluteURL);
         }
     }
 
-    void OnApplicationFocus(bool hasFocus)
+    void OnDeepLinkActivated(string url)
     {
-        if (hasFocus && !string.IsNullOrEmpty(Application.absoluteURL))
-        {
-            HandleDeepLink(Application.absoluteURL);
-        }
+        InsertAffiliateSDK.HandleInsertLinks(url);
     }
 
+    void OnDestroy()
+    {
+        Application.deepLinkActivated -= OnDeepLinkActivated;
+    }
+}
+```
+
+#### 3. iOS Configuration
+
+Add Associated Domains in your Xcode project (or via a post-build script):
+
+- `applinks:insertaffiliate.link`
+- `applinks:your-custom-domain.com` (if using a custom domain)
+
+Add your URL scheme to Info.plist:
+
+```xml
+<key>CFBundleURLSchemes</key>
+<array>
+    <string>ia-YOUR_COMPANY_CODE</string>
+</array>
+```
+
+#### 4. Android Configuration
+
+Add intent filters to your `AndroidManifest.xml`:
+
+```xml
+<!-- App Links -->
+<intent-filter android:autoVerify="true">
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="https" android:host="insertaffiliate.link" />
+</intent-filter>
+
+<!-- Custom URL Scheme -->
+<intent-filter>
+    <action android:name="android.intent.action.VIEW" />
+    <category android:name="android.intent.category.DEFAULT" />
+    <category android:name="android.intent.category.BROWSABLE" />
+    <data android:scheme="ia-YOUR_COMPANY_CODE" />
+</intent-filter>
+```
+
+Set `android:launchMode="singleTop"` on your main activity.
+
+#### 5. How Insert Links Attribution Works
+
+Insert Links provides multiple attribution methods, in order of confidence:
+
+1. **Direct deep link** - Universal Links (iOS) / App Links (Android) open the app directly with the affiliate code
+2. **Clipboard matching** - The redirect page copies a unique ID to the clipboard. On first app open, the SDK reads it and matches against the click (100% confidence, iOS only)
+3. **Fingerprint matching** - On first app open, the SDK sends device info to the backend which matches it against recent link clicks using probabilistic scoring
+4. **Install Referrer** - For Android Play Store installs, Google passes the affiliate code through the install referrer (100% confidence)
+5. **Custom URL scheme** - Fallback deep link via `ia-companycode://shortcode`
+
+### Basic Deep Link Handling
+
+If using a third-party deep linking provider instead of Insert Links:
+
+```csharp
+using InsertAffiliate;
+
+public class DeepLinkManager : MonoBehaviour
+{
     void HandleDeepLink(string url)
     {
         InsertAffiliateSDK.SetInsertAffiliateIdentifier(url, (shortCode) =>
@@ -559,7 +642,6 @@ public class DeepLinkManager : MonoBehaviour
             if (!string.IsNullOrEmpty(shortCode))
             {
                 Debug.Log($"Affiliate set: {shortCode}");
-                // Update your IAP provider attribution here
             }
         });
     }

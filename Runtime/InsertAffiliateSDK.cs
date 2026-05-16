@@ -18,6 +18,7 @@ namespace InsertAffiliate
         private static bool isInitialized = false;
         private static bool verboseLogging = false;
         private static bool insertLinksEnabled = false;
+        private static bool insertLinksClipboardEnabled = false;
         private static float? affiliateAttributionActiveTime = null;
         private static bool preventAffiliateTransfer = false;
 
@@ -38,6 +39,8 @@ namespace InsertAffiliate
 #if UNITY_IOS
         [DllImport("__Internal")]
         private static extern string _InsertAffiliate_GetIOSVersion();
+        [DllImport("__Internal")]
+        private static extern string _InsertAffiliate_GetClipboardString();
 #endif
 
         private static string GetNativeOSVersion()
@@ -60,6 +63,39 @@ namespace InsertAffiliate
             return m.Success ? m.Value : os;
         }
 
+        private static string GetClipboardUUID()
+        {
+            if (!insertLinksClipboardEnabled) return null;
+
+            if (!string.IsNullOrEmpty(Application.absoluteURL))
+            {
+                if (verboseLogging) Debug.Log("[Insert Affiliate] App opened via deep link, skipping clipboard check");
+                return null;
+            }
+
+#if UNITY_IOS
+            try
+            {
+                string clipboard = _InsertAffiliate_GetClipboardString();
+                if (string.IsNullOrEmpty(clipboard)) return null;
+
+                clipboard = clipboard.Trim();
+                if (System.Text.RegularExpressions.Regex.IsMatch(clipboard,
+                    @"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"))
+                {
+                    if (verboseLogging) Debug.Log($"[Insert Affiliate] Valid clipboard UUID found: {clipboard}");
+                    return clipboard;
+                }
+
+                if (verboseLogging) Debug.Log("[Insert Affiliate] Clipboard content is not a valid UUID");
+            }
+            catch (System.Exception e)
+            {
+                if (verboseLogging) Debug.Log($"[Insert Affiliate] Clipboard access failed: {e.Message}");
+            }
+#endif
+            return null;
+        }
 
         public enum AffiliateAssociationSource
         {
@@ -123,6 +159,7 @@ namespace InsertAffiliate
             string companyCode,
             bool verboseLogging = false,
             bool insertLinksEnabled = false,
+            bool insertLinksClipboardEnabled = false,
             float? affiliateAttributionActiveTime = null,
             bool preventAffiliateTransfer = false)
         {
@@ -141,6 +178,7 @@ namespace InsertAffiliate
             InsertAffiliateSDK.companyCode = companyCode;
             InsertAffiliateSDK.verboseLogging = verboseLogging;
             InsertAffiliateSDK.insertLinksEnabled = insertLinksEnabled;
+            InsertAffiliateSDK.insertLinksClipboardEnabled = insertLinksClipboardEnabled;
             InsertAffiliateSDK.affiliateAttributionActiveTime = affiliateAttributionActiveTime;
             InsertAffiliateSDK.preventAffiliateTransfer = preventAffiliateTransfer;
 
@@ -163,13 +201,67 @@ namespace InsertAffiliate
             if (insertLinksEnabled)
             {
                 SendInsertLinksDetectionIfNeeded();
+                CaptureInstallReferrerIfNeeded();
             }
         }
+
 
         /// <summary>
         /// Reports SDK initialization to the backend for onboarding verification.
         /// Only reports once per install to minimize server load.
         /// </summary>
+        private static void CaptureInstallReferrerIfNeeded()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            if (PlayerPrefs.GetInt("InsertAffiliate_ReferrerCaptured", 0) == 1) return;
+
+            try
+            {
+                using (var pluginClass = new AndroidJavaClass("com.insertaffiliate.unity.InsertAffiliateInstallReferrer"))
+                {
+                    pluginClass.CallStatic("getInstallReferrer");
+                }
+                if (verboseLogging) Debug.Log("[Insert Affiliate] Install referrer capture initiated");
+            }
+            catch (System.Exception e)
+            {
+                if (verboseLogging) Debug.Log($"[Insert Affiliate] Install referrer capture failed: {e.Message}");
+            }
+#endif
+        }
+
+        public static void ProcessInstallReferrer(string referrer)
+        {
+            if (string.IsNullOrEmpty(referrer))
+            {
+                if (verboseLogging) Debug.Log("[Insert Affiliate] Install referrer is empty");
+                return;
+            }
+
+            if (verboseLogging) Debug.Log($"[Insert Affiliate] Install referrer received: {referrer}");
+
+            PlayerPrefs.SetInt("InsertAffiliate_ReferrerCaptured", 1);
+            PlayerPrefs.Save();
+
+            string[] pairs = referrer.Split('&');
+            foreach (string pair in pairs)
+            {
+                string[] kv = pair.Split('=');
+                if (kv.Length == 2 && kv[0] == "insertAffiliate")
+                {
+                    string shortCode = kv[1].Trim().ToUpper();
+                    if (!string.IsNullOrEmpty(shortCode))
+                    {
+                        if (verboseLogging) Debug.Log($"[Insert Affiliate] Install referrer short code: {shortCode}");
+                        FetchDeepLinkData(shortCode, AffiliateAssociationSource.DeepLinkAndroid);
+                    }
+                    return;
+                }
+            }
+
+            if (verboseLogging) Debug.Log("[Insert Affiliate] No insertAffiliate parameter in referrer");
+        }
+
         private static void ReportSdkInitIfNeeded()
         {
             InsertAffiliateCoroutineRunner.Instance.StartCoroutine(ReportSdkInitCoroutine());
@@ -269,6 +361,7 @@ namespace InsertAffiliate
             public string timezone;
             public string language;
             public string country;
+            public string clipboardID;
         }
 
         [System.Serializable]
@@ -350,6 +443,12 @@ namespace InsertAffiliate
             catch
             {
                 payload.language = "en";
+            }
+
+            string clipboardUUID = GetClipboardUUID();
+            if (!string.IsNullOrEmpty(clipboardUUID))
+            {
+                payload.clipboardID = clipboardUUID;
             }
 
             string jsonPayload = JsonUtility.ToJson(payload);
@@ -1476,6 +1575,32 @@ namespace InsertAffiliate
                 Debug.Log($"[Insert Affiliate] Handling Insert Links URL: {url}");
             }
 
+            // Check for ?insertAffiliate= query parameter (Android deep links)
+            if (url.Contains("insertAffiliate="))
+            {
+                string param = null;
+                int paramIndex = url.IndexOf("insertAffiliate=");
+                if (paramIndex >= 0)
+                {
+                    param = url.Substring(paramIndex + 16);
+                    int ampIndex = param.IndexOf('&');
+                    if (ampIndex >= 0) param = param.Substring(0, ampIndex);
+                    int hashIndex = param.IndexOf('#');
+                    if (hashIndex >= 0) param = param.Substring(0, hashIndex);
+                }
+
+                if (!string.IsNullOrEmpty(param))
+                {
+                    string shortCode = param.Trim().ToUpper();
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Android query parameter detected - Short code: {shortCode}");
+                    }
+                    FetchDeepLinkData(shortCode, AffiliateAssociationSource.DeepLinkAndroid);
+                    return true;
+                }
+            }
+
             // Parse and handle the URL
             if (url.StartsWith("ia-") || url.Contains("://insert-affiliate"))
             {
@@ -1553,6 +1678,39 @@ namespace InsertAffiliate
                 else
                 {
                     Debug.LogWarning($"[Insert Affiliate] Invalid universal link format: {url}");
+                }
+            }
+            else if (url.StartsWith("https://"))
+            {
+                string[] pathComponents = url.Split('/');
+                if (pathComponents.Length >= 5)
+                {
+                    string linkCompanyCode = pathComponents[3];
+                    string shortCode = pathComponents[4];
+
+                    int queryIndex = shortCode.IndexOf('?');
+                    if (queryIndex >= 0) shortCode = shortCode.Substring(0, queryIndex);
+                    shortCode = shortCode.Trim('/').ToUpper();
+
+                    if (string.IsNullOrEmpty(companyCode) || linkCompanyCode.ToLower() != companyCode.ToLower())
+                    {
+                        if (verboseLogging)
+                        {
+                            Debug.Log($"[Insert Affiliate] Custom domain link company code ({linkCompanyCode}) doesn't match initialized company code ({companyCode}), ignoring");
+                        }
+                        return false;
+                    }
+
+                    if (!string.IsNullOrEmpty(shortCode))
+                    {
+                        if (verboseLogging)
+                        {
+                            Debug.Log($"[Insert Affiliate] Custom domain universal link detected - Short code: {shortCode}");
+                        }
+
+                        FetchDeepLinkData(shortCode, AffiliateAssociationSource.UniversalLink);
+                        return true;
+                    }
                 }
             }
 
