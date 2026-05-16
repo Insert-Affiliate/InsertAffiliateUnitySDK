@@ -34,5 +34,10 @@ namespace InsertAffiliate
             instance = this;
             DontDestroyOnLoad(gameObject);
         }
+
+        public void OnInstallReferrerReceived(string referrer)
+        {
+            InsertAffiliateSDK.ProcessInstallReferrer(referrer);
+        }
     }
 }
