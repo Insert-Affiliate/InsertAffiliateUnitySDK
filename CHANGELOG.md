@@ -5,6 +5,17 @@ All notable changes to the Insert Affiliate Unity SDK will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **In-app referrals** - turn your app's users into affiliates and let them refer friends
+  - `CreateAffiliateForUser()`, `VerifyAffiliateCode()` to join or reconnect a user (6-digit email code for existing affiliates)
+  - `GetMyAffiliateDetails()` for the user's link, referral counts and earnings
+  - `IsUserAnAffiliate()`, `SignOutAffiliate()`, `GetReferralProgramConfig()`
+  - `ShareReferralLink()` (system share sheet on iOS and Android) and `GetReferralShareText()`
+  - `ShowReferAFriend()` drop-in "Refer a friend" panel built with uGUI, themeable from code or the dashboard
+- Runtime assembly now references `UnityEngine.UI` (package dependency `com.unity.ugui`)
+
 ## [1.4.0] - 2026-05-16
 
 ### Added

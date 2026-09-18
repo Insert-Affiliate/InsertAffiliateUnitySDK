@@ -12,6 +12,7 @@ The **Insert Affiliate Unity SDK** provides seamless integration with the [Inser
   - [Choose Your Deep Linking Platform](#choose-your-deep-linking-platform)
 - [✅ Verification Checklist](#-verification-checklist)
 - [🔧 Advanced Features](#-advanced-features)
+- [🎁 In-App Referrals](#-in-app-referrals)
 - [🔍 Troubleshooting](#-troubleshooting)
 - [📚 API Reference](#-api-reference)
 
@@ -873,6 +874,116 @@ InsertAffiliateSDK.Initialize(
 
 ---
 
+## 🎁 In-App Referrals
+
+Turn your own users into affiliates from inside your app, show them a drop-in "Refer a friend" screen, and read their referral stats so you can reward them.
+
+A referrer is a normal affiliate: they take a seat, get the welcome email with a dashboard sign-in, and earn commission and/or the rewards you choose. Switch the program on (and pick what counts as a referral: install, event or purchase) in the Insert Affiliate dashboard first; until then enrolment returns `PROGRAM_DISABLED`.
+
+### Drop-in "Refer a friend" panel
+
+```csharp
+using InsertAffiliate;
+
+public void OnReferAFriendClicked()
+{
+    InsertAffiliateSDK.ShowReferAFriend(new ReferAFriendOptions
+    {
+        email = currentUser.Email,   // prefill (usually your logged-in user)
+        name = currentUser.Name,
+        onClose = () => Debug.Log("Refer a friend closed")
+    });
+}
+```
+
+The panel is built in code with uGUI (no prefab or assets to import) and handles every step:
+
+1. **Not joined yet:** email and name fields (prefilled) and a "Get my link" button.
+2. **Email code:** if the email is already an affiliate (reinstall, new phone, existing creator), a 6-digit code is emailed. The panel shows the code field, "Verify" and "Send a new code".
+3. **Joined:** the user's code and link, "Copy" and "Share" buttons, their referral count and earnings, and "Open my dashboard".
+
+**Options** (all optional):
+
+| Option | Description |
+|---|---|
+| `email`, `name` | Prefill the join form |
+| `shareMessage` | Share message. May use `{link}` and `{code}` placeholders |
+| `primaryColor` | Hex colour such as `"#6A0DAD"`. Order: this option, then the dashboard colour, then `#6A0DAD` |
+| `headline`, `rewardText` | Override the copy set in the dashboard (default headline "Refer a friend") |
+| `font` | Font for all text (defaults to Unity's built-in font) |
+| `cornerRadius` | Corner radius of the card, buttons and fields (default `24`) |
+| `sortingOrder` | Canvas sorting order so the panel draws above your UI (default `1000`) |
+| `onClose` | Called when the user closes the panel |
+
+Close it from code with `ReferAFriendPanel.Hide()`; `ReferAFriendPanel.IsShowing` tells you whether it is open.
+
+**Notes:**
+- The panel needs an `EventSystem` to receive taps. If your scene has none, it adds one with a `StandaloneInputModule` (removed again on close). Projects that use only the new Input System should keep their own `EventSystem` with an `InputSystemUIInputModule` in the scene.
+- **Share** opens the system share sheet on iOS and Android. In the Editor and on desktop it copies the text to the clipboard and shows "Copied".
+- The SDK never asks for Contacts access and nothing is gated behind sharing, in line with App Store and Google Play rules.
+
+### Build your own UI
+
+```csharp
+// 1. Join (or reconnect) the current user
+InsertAffiliateSDK.CreateAffiliateForUser(user.Email, user.Name, result =>
+{
+    if (result.IsConnected)
+    {
+        // status "created": new affiliate, this device is connected
+        Debug.Log($"Share code: {result.affiliate.affiliateShortCode}");
+    }
+    else if (result.IsVerificationRequired)
+    {
+        // Already an affiliate: a 6-digit code was emailed. Ask for it, then:
+        // InsertAffiliateSDK.VerifyAffiliateCode(user.Email, enteredCode, user.Name, OnVerified);
+    }
+    else
+    {
+        Debug.Log($"Could not join: {result.errorCode} {result.errorMessage}");
+    }
+});
+
+// 2. Show stats (null when this device is not connected)
+InsertAffiliateSDK.GetMyAffiliateDetails(details =>
+{
+    if (details == null) return;
+    Debug.Log($"{details.referralCount} referrals, earned {details.totalEarned} {details.currency}");
+});
+
+// 3. Share
+InsertAffiliateSDK.ShareReferralLink("Join me on MyApp: {link}");
+
+// On app logout
+InsertAffiliateSDK.SignOutAffiliate();
+```
+
+**Result statuses:** `created`, `connected` (reconnected with the email code), `verificationRequired`, or `error`. Error codes (`ReferralErrorCodes`): `PROGRAM_DISABLED`, `AFFILIATE_LIMIT_REACHED`, `INVALID_EMAIL`, `INVALID_CODE`, `TOO_MANY_CODES`, `RATE_LIMITED`, `COMPANY_NOT_FOUND`, `NETWORK_ERROR`, `SERVER_ERROR`, `NOT_INITIALIZED`.
+
+**Share text:** with a link it is `"<message> <link>"` (default message `"Try {companyName}:"`). For Short Code Only programs it is `"Use my code {code} in {companyName}"`. A custom message may use the `{link}` and `{code}` placeholders; otherwise the link (or code) is appended.
+
+**Using your own share plugin:** Unity has no built-in share sheet on every platform. If you already use a native share plugin, get the text and pass it on:
+
+```csharp
+InsertAffiliateSDK.GetReferralShareText(text =>
+{
+    if (text != null) MyNativeShare.Share(text);
+});
+```
+
+**Storage:** connecting a device stores a private token in `PlayerPrefs` (one per company code). It only reads that user's own stats and is never logged. Uninstalling clears it; the user reconnects with the email code and their affiliate account, earnings and dashboard are unchanged.
+
+### Rewarding referrers
+
+`referralCount` only goes up, so you can compare it with what you have already rewarded and grant the difference. But values read on the device are for **display**: a modified device can fake them. Grant anything valuable (credits, premium time, currency) from your server instead:
+
+- **`referral.created` webhook:** fires each time something you count as a referral happens. The payload includes `short_code`, `trigger` and `referral_count` (the running total), so rewarding up to that total is safe to repeat.
+- **Public API:** `GET /public/v1/affiliates/:identifier` includes a `referrals` object with the same counts.
+
+For free premium time, use Apple/Google offer codes or RevenueCat promotional entitlements rather than custom unlock codes, and never reward ratings or reviews.
+
+---
+
 ## 🔍 Troubleshooting
 
 <details>
@@ -971,6 +1082,38 @@ string offerCode = InsertAffiliateSDK.OfferCode
 
 // Check if initialized
 bool isInit = InsertAffiliateSDK.IsInitialized()
+```
+
+### In-App Referrals
+
+```csharp
+// Join the current user as an affiliate (status: created | verificationRequired | error)
+InsertAffiliateSDK.CreateAffiliateForUser(string email, string name, Action<ReferralResult> callback)
+
+// Finish reconnecting with the emailed 6-digit code (status: connected | created | error)
+InsertAffiliateSDK.VerifyAffiliateCode(string email, string code, string name, Action<ReferralResult> callback)
+InsertAffiliateSDK.VerifyAffiliateCode(string email, string code, Action<ReferralResult> callback)
+
+// The connected user's details and stats (null when not connected)
+InsertAffiliateSDK.GetMyAffiliateDetails(Action<MyAffiliateDetails> callback)
+
+// Is this device connected as an affiliate? (local, no network)
+bool isReferrer = InsertAffiliateSDK.IsUserAnAffiliate()
+
+// Disconnect this device (call on app logout)
+InsertAffiliateSDK.SignOutAffiliate()
+
+// Program settings from the dashboard (enabled, companyName, referralTrigger, headline, rewardText, primaryColor)
+InsertAffiliateSDK.GetReferralProgramConfig(Action<ReferralProgramConfig> callback)
+
+// Share sheet on iOS/Android, clipboard + "Copied" elsewhere
+InsertAffiliateSDK.ShareReferralLink(string message = null, Action<bool> callback = null)
+
+// Share text for your own share plugin
+InsertAffiliateSDK.GetReferralShareText(Action<string> callback, string message = null)
+
+// Drop-in "Refer a friend" panel
+InsertAffiliateSDK.ShowReferAFriend(ReferAFriendOptions options = null)
 ```
 
 ### Events & Callbacks
