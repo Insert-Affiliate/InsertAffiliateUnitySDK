@@ -83,6 +83,9 @@ namespace InsertAffiliate
         private string enteredName;
         private bool referrerAccountSent;
         private bool closed;
+        // Goes up each time the body shows a new step, so a reply meant for an earlier step
+        // (the user tapped "Use a different email" meanwhile) leaves the current one alone.
+        private int step;
 
         /// <summary>
         /// True while the panel is on screen
@@ -278,6 +281,7 @@ namespace InsertAffiliate
             }
             statusText = null;
             bodyChanged = true;
+            step++;
         }
 
         // States
@@ -396,10 +400,13 @@ namespace InsertAffiliate
                 enteredName = nameField.text.Trim();
 
                 SetBusy(joinButton, "Please wait...");
+                int requestStep = step;
                 InsertAffiliateSDK.CreateAffiliateForUser(enteredEmail, enteredName, ReferrerAccount(), result =>
                 {
                     if (this == null) return;
+                    // Connected is shown whatever the step: this device now holds the token.
                     if (result.IsConnected) LoadDetails();
+                    else if (requestStep != step) return;
                     else if (result.IsVerificationRequired) ShowCode();
                     else
                     {
@@ -441,10 +448,13 @@ namespace InsertAffiliate
 
                 verifying = true;
                 SetBusy(verifyButton, "Please wait...");
+                int requestStep = step;
                 InsertAffiliateSDK.VerifyAffiliateCode(enteredEmail, code, enteredName, ReferrerAccount(), result =>
                 {
                     if (this == null) return;
+                    // Connected is shown whatever the step: this device now holds the token.
                     if (result.IsConnected) LoadDetails();
+                    else if (requestStep != step) return;
                     else
                     {
                         verifying = false;
@@ -464,12 +474,19 @@ namespace InsertAffiliate
             resendButton = AddTextButton(body, "Send a new code", primary, () =>
             {
                 SetBusy(resendButton, "Sending...");
+                int requestStep = step;
                 InsertAffiliateSDK.CreateAffiliateForUser(enteredEmail, enteredName, ReferrerAccount(), result =>
                 {
                     if (this == null) return;
+                    // Connected is shown whatever the step: this device now holds the token.
+                    if (result.IsConnected)
+                    {
+                        LoadDetails();
+                        return;
+                    }
+                    if (requestStep != step) return;
                     SetIdle(resendButton, "Send a new code");
-                    if (result.IsConnected) LoadDetails();
-                    else if (result.IsVerificationRequired) SetStatus("A new code is on its way.", SuccessColor);
+                    if (result.IsVerificationRequired) SetStatus("A new code is on its way.", SuccessColor);
                     else SetStatus(MessageFor(result.errorCode), ErrorColor);
                 });
             });
