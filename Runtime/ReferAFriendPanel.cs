@@ -82,6 +82,7 @@ namespace InsertAffiliate
         private string enteredEmail;
         private string enteredName;
         private bool referrerAccountSent;
+        private bool closed;
 
         /// <summary>
         /// True while the panel is on screen
@@ -98,15 +99,20 @@ namespace InsertAffiliate
 
         internal static void Show(ReferAFriendOptions options)
         {
+            // The panel already showing closes first (its onClose runs). The EventSystem it added
+            // moves to the new panel, which removes it on close.
+            GameObject eventSystem = null;
             if (current != null)
             {
-                Destroy(current.gameObject);
-                current = null;
+                eventSystem = current.createdEventSystem;
+                current.createdEventSystem = null;
+                current.Close();
             }
 
             var root = new GameObject("InsertAffiliateReferAFriend");
             current = root.AddComponent<ReferAFriendPanel>();
             current.Build(options);
+            if (eventSystem != null) current.createdEventSystem = eventSystem;
             current.Load();
         }
 
@@ -143,6 +149,10 @@ namespace InsertAffiliate
         /// </summary>
         public void Close()
         {
+            // Runs once, so onClose fires once even when Close and the back button land in the same frame.
+            if (closed) return;
+            closed = true;
+
             if (current == this) current = null;
             if (createdEventSystem != null) Destroy(createdEventSystem);
             Destroy(gameObject);
