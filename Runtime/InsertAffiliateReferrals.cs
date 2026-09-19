@@ -67,7 +67,7 @@ namespace InsertAffiliate
             };
 
             InsertAffiliateCoroutineRunner.Instance.StartCoroutine(
-                ReferralEnrolCoroutine("/enrol", JsonUtility.ToJson(payload), callback));
+                ReferralEnrolCoroutine("/enrol", ReferralRequestJson(payload), callback));
         }
 
         /// <summary>
@@ -107,7 +107,7 @@ namespace InsertAffiliate
             };
 
             InsertAffiliateCoroutineRunner.Instance.StartCoroutine(
-                ReferralEnrolCoroutine("/verify", JsonUtility.ToJson(payload), callback));
+                ReferralEnrolCoroutine("/verify", ReferralRequestJson(payload), callback));
         }
 
         /// <summary>
@@ -520,7 +520,7 @@ namespace InsertAffiliate
 
             using (UnityWebRequest request = new UnityWebRequest($"{API_BASE_URL}{API_SDK_AFFILIATE}/me/identity", "POST"))
             {
-                request.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload)));
+                request.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(ReferralRequestJson(payload)));
                 request.downloadHandler = new DownloadHandlerBuffer();
                 request.SetRequestHeader("Content-Type", "application/json");
                 request.SetRequestHeader(TOKEN_HEADER, token);
@@ -632,6 +632,36 @@ namespace InsertAffiliate
                 ? response.error
                 : (request.error ?? "Request failed.");
             return ReferralResult.Error(code, message);
+        }
+
+        // Request body for enrol, verify and /me/identity, with the phone's OS added.
+        private static string ReferralRequestJson(object payload)
+        {
+            return WithReferralOs(JsonUtility.ToJson(payload), Application.platform);
+        }
+
+        // The phone's OS, so the server can pick the referrer's reward store (App Store or Google Play).
+        // Null in the editor and on other platforms.
+        private static string ReferralOs(RuntimePlatform platform)
+        {
+            switch (platform)
+            {
+                case RuntimePlatform.IPhonePlayer:
+                    return "ios";
+                case RuntimePlatform.Android:
+                    return "android";
+                default:
+                    return null;
+            }
+        }
+
+        // JsonUtility cannot leave out an empty field, so "os" is appended to the JSON object only when known.
+        private static string WithReferralOs(string json, RuntimePlatform platform)
+        {
+            string os = ReferralOs(platform);
+            if (os == null || string.IsNullOrEmpty(json) || !json.EndsWith("}")) return json;
+            string separator = json.TrimEnd('}').Trim() == "{" ? "" : ",";
+            return json.Substring(0, json.Length - 1) + separator + "\"os\":\"" + os + "\"}";
         }
 
         private static T ParseReferralJson<T>(string json) where T : class

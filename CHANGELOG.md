@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ShowReferAFriend()` drop-in "Refer a friend" panel built with uGUI, themeable from code or the dashboard
   - Automatic referrer rewards: `ReferrerAccountOptions` (`appUserId`, `playPurchaseToken`) overloads of `CreateAffiliateForUser()` and `VerifyAffiliateCode()`, and `SetReferrerAccount()` for accounts added after joining
   - Enrol and verify send this device's id (the one in the insert affiliate identifier) to block self-referrals
+  - Enrol, verify and `SetReferrerAccount()` send the phone's OS (`os`: `ios` or `android`) so the server can pick the referrer's reward store; left out in the editor and on other platforms
   - `MyAffiliateDetails` gains `rewardsGranted`, `premiumUntil` and `rewardCodes`
   - The panel shows "Free premium until {date}" and a "Your rewards" list of App Store codes with a "Redeem" button (hidden on Android)
   - `ReferAFriendOptions.appUserId` and `playPurchaseToken`: the panel passes them when the user joins or verifies, and saves them once with `SetReferrerAccount()` when it opens for a user who has already joined
