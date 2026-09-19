@@ -16,6 +16,10 @@ namespace InsertAffiliate
         public string email;
         /// <summary>Prefills the name field</summary>
         public string name;
+        /// <summary>The user's RevenueCat app user id or Adapty customer user id, used to reward them automatically</summary>
+        public string appUserId;
+        /// <summary>The user's own Google Play subscription purchase token (Android), used to reward them automatically</summary>
+        public string playPurchaseToken;
         /// <summary>Share message. May use {link} and {code} placeholders.</summary>
         public string shareMessage;
         /// <summary>Hex colour such as "#6A0DAD". Overrides the dashboard colour.</summary>
@@ -69,6 +73,7 @@ namespace InsertAffiliate
         private GameObject createdEventSystem;
         private string enteredEmail;
         private string enteredName;
+        private bool referrerAccountSent;
 
         /// <summary>
         /// True while the panel is on screen
@@ -215,6 +220,7 @@ namespace InsertAffiliate
 
                 if (InsertAffiliateSDK.IsUserAnAffiliate())
                 {
+                    SendReferrerAccountOnce();
                     LoadDetails();
                 }
                 else if (config == null)
@@ -230,6 +236,20 @@ namespace InsertAffiliate
                     ShowJoin();
                 }
             });
+        }
+
+        // Already joined: save the accounts passed in the options so waiting rewards get granted.
+        private void SendReferrerAccountOnce()
+        {
+            if (referrerAccountSent) return;
+            if (string.IsNullOrEmpty(options.appUserId) && string.IsNullOrEmpty(options.playPurchaseToken)) return;
+            referrerAccountSent = true;
+            InsertAffiliateSDK.SetReferrerAccount(ReferrerAccount());
+        }
+
+        private ReferrerAccountOptions ReferrerAccount()
+        {
+            return new ReferrerAccountOptions { appUserId = options.appUserId, playPurchaseToken = options.playPurchaseToken };
         }
 
         private void LoadDetails()
@@ -302,7 +322,7 @@ namespace InsertAffiliate
                 enteredName = nameField.text.Trim();
 
                 SetBusy(joinButton, "Please wait...");
-                InsertAffiliateSDK.CreateAffiliateForUser(enteredEmail, enteredName, result =>
+                InsertAffiliateSDK.CreateAffiliateForUser(enteredEmail, enteredName, ReferrerAccount(), result =>
                 {
                     if (this == null) return;
                     if (result.IsConnected) LoadDetails();
@@ -339,7 +359,7 @@ namespace InsertAffiliate
                 }
 
                 SetBusy(verifyButton, "Please wait...");
-                InsertAffiliateSDK.VerifyAffiliateCode(enteredEmail, code, enteredName, result =>
+                InsertAffiliateSDK.VerifyAffiliateCode(enteredEmail, code, enteredName, ReferrerAccount(), result =>
                 {
                     if (this == null) return;
                     if (result.IsConnected) LoadDetails();
@@ -355,7 +375,7 @@ namespace InsertAffiliate
             resendButton = AddTextButton(body, "Send a new code", primary, () =>
             {
                 SetBusy(resendButton, "Sending...");
-                InsertAffiliateSDK.CreateAffiliateForUser(enteredEmail, enteredName, result =>
+                InsertAffiliateSDK.CreateAffiliateForUser(enteredEmail, enteredName, ReferrerAccount(), result =>
                 {
                     if (this == null) return;
                     SetIdle(resendButton, "Send a new code");

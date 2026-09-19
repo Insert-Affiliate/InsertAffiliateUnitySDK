@@ -907,6 +907,7 @@ The panel is built in code with uGUI (no prefab or assets to import) and handles
 | Option | Description |
 |---|---|
 | `email`, `name` | Prefill the join form |
+| `appUserId`, `playPurchaseToken` | The user's RevenueCat / Adapty app user id and Google Play purchase token, for [automatic rewards](#automatic-rewards). Sent when the user joins, and saved with `SetReferrerAccount()` when the panel opens for a user who has already joined |
 | `shareMessage` | Share message. May use `{link}` and `{code}` placeholders |
 | `primaryColor` | Hex colour such as `"#6A0DAD"`. Order: this option, then the dashboard colour, then `#6A0DAD` |
 | `headline`, `rewardText` | Override the copy set in the dashboard (default headline "Refer a friend") |
@@ -996,6 +997,8 @@ var account = new ReferrerAccountOptions
 InsertAffiliateSDK.CreateAffiliateForUser(user.Email, user.Name, account, OnResult);
 InsertAffiliateSDK.VerifyAffiliateCode(user.Email, enteredCode, user.Name, account, OnResult);
 ```
+
+Using the drop-in panel? Set `appUserId` and `playPurchaseToken` on `ReferAFriendOptions` instead; the panel sends them for you.
 
 If the user subscribes or logs in after joining, save the accounts then. Rewards that were waiting for them are granted:
 

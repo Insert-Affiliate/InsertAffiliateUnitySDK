@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enrol and verify send this device's id (the one in the insert affiliate identifier) to block self-referrals
   - `MyAffiliateDetails` gains `rewardsGranted`, `premiumUntil` and `rewardCodes`
   - The panel shows "Free premium until {date}" and a "Your rewards" list of App Store codes with a "Redeem" button (hidden on Android)
+  - `ReferAFriendOptions.appUserId` and `playPurchaseToken`: the panel passes them when the user joins or verifies, and saves them once with `SetReferrerAccount()` when it opens for a user who has already joined
 - Runtime assembly now references `UnityEngine.UI` (package dependency `com.unity.ugui`)
 
 ## [1.4.0] - 2026-05-16
