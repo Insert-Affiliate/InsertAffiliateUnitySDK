@@ -98,7 +98,7 @@ namespace InsertAffiliate
             {
                 companyId = companyCode,
                 email = (email ?? "").Trim(),
-                code = (code ?? "").Trim(),
+                code = NormalizeVerificationCode(code),
                 name = name ?? "",
                 platform = REFERRAL_PLATFORM,
                 deviceId = GetOrCreateShortUniqueDeviceID(),
@@ -304,6 +304,24 @@ namespace InsertAffiliate
             return hasLink
                 ? $"Try {appName}: {link}"
                 : $"Use my code {code} in {appName}";
+        }
+
+        // The emailed code as ASCII digits: every Unicode decimal digit (Arabic-Indic, full-width, ...)
+        // becomes 0-9 and everything else (spaces, dashes) is dropped. VerifyAffiliateCode applies it.
+        internal static string NormalizeVerificationCode(string code)
+        {
+            if (string.IsNullOrEmpty(code)) return "";
+            var digits = new System.Text.StringBuilder(code.Length);
+            for (int i = 0; i < code.Length; i++)
+            {
+                if (char.IsDigit(code, i))
+                {
+                    int value = (int)char.GetNumericValue(code, i);
+                    if (value >= 0 && value <= 9) digits.Append((char)('0' + value));
+                }
+                if (char.IsSurrogatePair(code, i)) i++;
+            }
+            return digits.ToString();
         }
 
         // Internal API used by the drop-in panel

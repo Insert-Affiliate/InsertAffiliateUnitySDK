@@ -409,19 +409,27 @@ namespace InsertAffiliate
             CreateText(body, $"We emailed a 6-digit code to {enteredEmail}. Enter it below to connect this device.",
                 BODY_SIZE, MutedColor, font);
 
-            var codeField = AddInput(body, "6-digit code", "", InputField.ContentType.IntegerNumber);
-            codeField.characterLimit = 6;
+            // Any characters are accepted, so a pasted "123 456" or digits from another script work;
+            // the code is normalized to ASCII digits and Verify is enabled at exactly 6.
+            var codeField = AddInput(body, "6-digit code", "", InputField.ContentType.Custom);
+            codeField.lineType = InputField.LineType.SingleLine;
+            codeField.inputType = InputField.InputType.Standard;
+            codeField.keyboardType = TouchScreenKeyboardType.NumberPad;
+            codeField.characterValidation = InputField.CharacterValidation.None;
+            codeField.characterLimit = 32;
 
             Button verifyButton = null;
+            bool verifying = false;
             verifyButton = AddButton(body, "Verify", primary, Color.white, () =>
             {
-                string code = codeField.text.Trim();
+                string code = InsertAffiliateSDK.NormalizeVerificationCode(codeField.text);
                 if (code.Length != 6)
                 {
                     SetStatus("Enter the 6-digit code from the email.", ErrorColor);
                     return;
                 }
 
+                verifying = true;
                 SetBusy(verifyButton, "Please wait...");
                 InsertAffiliateSDK.VerifyAffiliateCode(enteredEmail, code, enteredName, ReferrerAccount(), result =>
                 {
@@ -429,10 +437,17 @@ namespace InsertAffiliate
                     if (result.IsConnected) LoadDetails();
                     else
                     {
+                        verifying = false;
                         SetIdle(verifyButton, "Verify");
+                        if (verifyButton != null) verifyButton.interactable = HasSixDigits(codeField.text);
                         SetStatus(MessageFor(result.errorCode), ErrorColor);
                     }
                 });
+            });
+            verifyButton.interactable = false;
+            codeField.onValueChanged.AddListener(value =>
+            {
+                if (!verifying) verifyButton.interactable = HasSixDigits(value);
             });
 
             Button resendButton = null;
@@ -668,6 +683,11 @@ namespace InsertAffiliate
             string value = amount.ToString("0.00", CultureInfo.InvariantCulture);
             if (string.IsNullOrEmpty(currency) || currency == "USD") return "$" + value;
             return value + " " + currency;
+        }
+
+        private static bool HasSixDigits(string value)
+        {
+            return InsertAffiliateSDK.NormalizeVerificationCode(value).Length == 6;
         }
 
         private static bool LooksLikeEmail(string email)
