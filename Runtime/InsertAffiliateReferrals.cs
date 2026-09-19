@@ -495,16 +495,11 @@ namespace InsertAffiliate
                     yield break;
                 }
 
-                ReferralResult error = ErrorResultFor(request, ParseReferralJson<ReferralResponse>(request.downloadHandler.text));
+                ReferralResponse errorResponse = ParseReferralJson<ReferralResponse>(request.downloadHandler.text);
+                ReferralResult error = ErrorResultFor(request, errorResponse);
 
-                // The token no longer works (revoked, or the affiliate was deleted): forget it.
-                if (request.responseCode == 401 || request.responseCode == 404)
+                if (ForgetRejectedToken(request.responseCode, errorResponse, token))
                 {
-                    ClearReferrerToken();
-                    if (verboseLogging)
-                    {
-                        Debug.Log($"[Insert Affiliate] Affiliate connection no longer valid ({error.errorCode}), cleared");
-                    }
                     callback?.Invoke(null, null);
                     yield break;
                 }
@@ -559,16 +554,11 @@ namespace InsertAffiliate
                     yield break;
                 }
 
-                ReferralResult error = ErrorResultFor(request, ParseReferralJson<ReferralResponse>(request.downloadHandler.text));
+                ReferralResponse errorResponse = ParseReferralJson<ReferralResponse>(request.downloadHandler.text);
+                ReferralResult error = ErrorResultFor(request, errorResponse);
 
-                // The token no longer works (revoked, or the affiliate was deleted): forget it.
-                if (request.responseCode == 401 || request.responseCode == 404)
+                if (ForgetRejectedToken(request.responseCode, errorResponse, token))
                 {
-                    ClearReferrerToken();
-                    if (verboseLogging)
-                    {
-                        Debug.Log($"[Insert Affiliate] Affiliate connection no longer valid ({error.errorCode}), cleared");
-                    }
                     callback?.Invoke(false);
                     yield break;
                 }
@@ -635,6 +625,25 @@ namespace InsertAffiliate
             }
 
             callback?.Invoke(BuildReferralShareText(details.ToAffiliate(), referralCompanyName, message));
+        }
+
+        // True when the server rejected the token sent (401 INVALID_TOKEN: revoked; 404 AFFILIATE_NOT_FOUND:
+        // the affiliate was deleted). Any other 401 or 404, such as a proxy or routing error, keeps the token.
+        // The token is cleared only while it is still the stored one, so a connection made meanwhile is kept.
+        private static bool ForgetRejectedToken(long responseCode, ReferralResponse response, string sentToken)
+        {
+            string code = response != null ? response.code : null;
+            bool rejected = (responseCode == 401 && code == ReferralErrorCodes.InvalidToken) ||
+                            (responseCode == 404 && code == ReferralErrorCodes.AffiliateNotFound);
+            if (!rejected) return false;
+
+            bool cleared = GetReferrerToken() == sentToken;
+            if (cleared) ClearReferrerToken();
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] Affiliate connection no longer valid ({code})" + (cleared ? ", cleared" : ""));
+            }
+            return true;
         }
 
         private static ReferralResult ErrorResultFor(UnityWebRequest request, ReferralResponse response)
@@ -780,6 +789,8 @@ namespace InsertAffiliate
         public const string CompanyNotFound = "COMPANY_NOT_FOUND";
         public const string TooManyCodes = "TOO_MANY_CODES";
         public const string RateLimited = "RATE_LIMITED";
+        public const string InvalidToken = "INVALID_TOKEN";
+        public const string AffiliateNotFound = "AFFILIATE_NOT_FOUND";
         public const string NetworkError = "NETWORK_ERROR";
         public const string ServerError = "SERVER_ERROR";
         public const string NotInitialized = "NOT_INITIALIZED";
