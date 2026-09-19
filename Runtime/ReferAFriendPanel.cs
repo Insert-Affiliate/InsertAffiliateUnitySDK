@@ -463,11 +463,11 @@ namespace InsertAffiliate
             AddStat(stats, details.referralCount.ToString(CultureInfo.InvariantCulture), "Referrals");
             AddStat(stats, FormatMoney(details.totalEarned, details.currency), "Earned");
 
-            // Reward codes are App Store codes, so they can't be redeemed on Android.
-            if (details.rewardCodes != null && details.rewardCodes.Length > 0 &&
-                Application.platform != RuntimePlatform.Android)
+            // Only codes this phone's store can redeem (App Store on iOS, Google Play on Android).
+            var rewardCodes = InsertAffiliateSDK.RewardCodesForPlatform(details.rewardCodes, Application.platform);
+            if (rewardCodes.Length > 0)
             {
-                AddRewardCodes(details.rewardCodes);
+                AddRewardCodes(rewardCodes);
             }
 
             if (!string.IsNullOrEmpty(details.dashboardUrl))

@@ -260,6 +260,24 @@ namespace InsertAffiliate
         }
 
         /// <summary>
+        /// The reward codes that can be redeemed on the given platform: App Store codes on iOS,
+        /// Google Play codes on Android, every code elsewhere (editor, desktop, WebGL). Used by the drop-in panel.
+        /// </summary>
+        public static ReferralRewardCode[] RewardCodesForPlatform(ReferralRewardCode[] codes, RuntimePlatform platform)
+        {
+            if (codes == null) return new ReferralRewardCode[0];
+            switch (platform)
+            {
+                case RuntimePlatform.IPhonePlayer:
+                    return Array.FindAll(codes, reward => reward != null && reward.IsAppStore);
+                case RuntimePlatform.Android:
+                    return Array.FindAll(codes, reward => reward != null && reward.IsGooglePlay);
+                default:
+                    return codes;
+            }
+        }
+
+        /// <summary>
         /// The share text for the given affiliate. Used by GetReferralShareText and the drop-in panel.
         /// </summary>
         public static string BuildReferralShareText(ReferrerAffiliate affiliate, string companyName, string message = null)
@@ -464,6 +482,7 @@ namespace InsertAffiliate
                         // JsonUtility reads a missing or null string as "" and may leave a missing array null.
                         if (string.IsNullOrEmpty(details.premiumUntil)) details.premiumUntil = null;
                         if (details.rewardCodes == null) details.rewardCodes = new ReferralRewardCode[0];
+                        DefaultRewardCodeStores(details.rewardCodes);
 
                         if (verboseLogging)
                         {
@@ -634,6 +653,15 @@ namespace InsertAffiliate
             return ReferralResult.Error(code, message);
         }
 
+        // Codes without a store (older servers, or JsonUtility's "" for a missing field) are App Store codes.
+        private static void DefaultRewardCodeStores(ReferralRewardCode[] codes)
+        {
+            foreach (var reward in codes)
+            {
+                if (reward != null && string.IsNullOrWhiteSpace(reward.store)) reward.store = ReferralRewardCode.AppStore;
+            }
+        }
+
         // Request body for enrol, verify and /me/identity, with the phone's OS added.
         private static string ReferralRequestJson(object payload)
         {
@@ -794,16 +822,28 @@ namespace InsertAffiliate
     }
 
     /// <summary>
-    /// An App Store one-time offer code granted to the referrer as a reward
+    /// A reward code granted to the referrer: an App Store one-time offer code,
+    /// or a Google Play promo code if they were rewarded on an Android phone
     /// </summary>
     [Serializable]
     public class ReferralRewardCode
     {
+        public const string AppStore = "app_store";
+        public const string GooglePlay = "google_play";
+
         public string code;
-        /// <summary>Opens the App Store to redeem the code</summary>
+        /// <summary>Opens the store to redeem the code</summary>
         public string redeemUrl;
+        /// <summary>
+        /// Which store redeems the code: "app_store" or "google_play". Older servers don't send it;
+        /// those codes are App Store codes. Other values are kept as-is.
+        /// </summary>
+        public string store;
         /// <summary>ISO 8601 date and time</summary>
         public string grantedAt;
+
+        public bool IsAppStore => string.IsNullOrWhiteSpace(store) || store == AppStore;
+        public bool IsGooglePlay => store == GooglePlay;
     }
 
     /// <summary>

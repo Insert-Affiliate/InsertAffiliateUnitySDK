@@ -18,7 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Enrol and verify send this device's id (the one in the insert affiliate identifier) to block self-referrals
   - Enrol, verify and `SetReferrerAccount()` send the phone's OS (`os`: `ios` or `android`) so the server can pick the referrer's reward store; left out in the editor and on other platforms
   - `MyAffiliateDetails` gains `rewardsGranted`, `premiumUntil` and `rewardCodes`
-  - The panel shows "Free premium until {date}" and a "Your rewards" list of App Store codes with a "Redeem" button (hidden on Android)
+  - `ReferralRewardCode.store` (`app_store` or `google_play`, missing means `app_store`) with `IsAppStore` / `IsGooglePlay`, and `RewardCodesForPlatform()`: the panel lists App Store codes on iOS, Google Play promo codes on Android and every code elsewhere
+  - The panel shows "Free premium until {date}" and a "Your rewards" list of the phone's store codes with a "Redeem" button
   - `ReferAFriendOptions.appUserId` and `playPurchaseToken`: the panel passes them when the user joins or verifies, and saves them once with `SetReferrerAccount()` when it opens for a user who has already joined
 - Runtime assembly now references `UnityEngine.UI` (package dependency `com.unity.ugui`)
 

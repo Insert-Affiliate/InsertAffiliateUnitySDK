@@ -900,7 +900,7 @@ The panel is built in code with uGUI (no prefab or assets to import) and handles
 
 1. **Not joined yet:** email and name fields (prefilled) and a "Get my link" button.
 2. **Email code:** if the email is already an affiliate (reinstall, new phone, existing creator), a 6-digit code is emailed. The panel shows the code field, "Verify" and "Send a new code".
-3. **Joined:** the user's code and link, "Copy" and "Share" buttons, their referral count and earnings, and "Open my dashboard". When the user has free premium time from rewards it shows "Free premium until {date}", and App Store reward codes are listed under "Your rewards" with a "Redeem" button (hidden on Android, where App Store codes can't be redeemed).
+3. **Joined:** the user's code and link, "Copy" and "Share" buttons, their referral count and earnings, and "Open my dashboard". When the user has free premium time from rewards it shows "Free premium until {date}", and the reward codes this phone can redeem are listed under "Your rewards" with a "Redeem" button: App Store offer codes on iOS, Google Play promo codes on Android (every code in the editor and on other platforms).
 
 **Options** (all optional):
 
@@ -1009,7 +1009,7 @@ InsertAffiliateSDK.SetReferrerAccount(new ReferrerAccountOptions { appUserId = a
 });
 ```
 
-The SDK also sends this device's id automatically, so a user can't refer themselves. `GetMyAffiliateDetails()` reports what was granted: `rewardsGranted`, `premiumUntil` (ISO date, or `null`) and `rewardCodes` (App Store codes, newest first, each with `code`, `redeemUrl` and `grantedAt`). Open `redeemUrl` with `Application.OpenURL` to redeem a code.
+The SDK also sends this device's id automatically, so a user can't refer themselves. `GetMyAffiliateDetails()` reports what was granted: `rewardsGranted`, `premiumUntil` (ISO date, or `null`) and `rewardCodes` (newest first, each with `code`, `redeemUrl`, `store` and `grantedAt`). `store` is `"app_store"` for an App Store offer code (iOS only) or `"google_play"` for a Google Play promo code (Android only, `redeemUrl` is `https://play.google.com/redeem?code=...`); codes from older servers have no store and are read as `"app_store"`. `IsAppStore` / `IsGooglePlay` check it, and `InsertAffiliateSDK.RewardCodesForPlatform(details.rewardCodes, Application.platform)` returns just the codes the phone can redeem. Open `redeemUrl` with `Application.OpenURL` to redeem a code.
 
 ---
 
