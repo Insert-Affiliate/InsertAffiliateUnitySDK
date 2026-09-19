@@ -380,6 +380,13 @@ namespace InsertAffiliate
                 CreateText(body, reward, BODY_SIZE, MutedColor, font);
             }
 
+            DateTime premiumUntil;
+            if (TryParseDate(details.premiumUntil, out premiumUntil) && premiumUntil > DateTime.UtcNow)
+            {
+                string date = premiumUntil.ToLocalTime().ToString("D", CultureInfo.CurrentCulture);
+                CreateText(body, $"Free premium until {date}", BODY_SIZE, SuccessColor, font, FontStyle.Bold);
+            }
+
             string code = details.affiliateShortCode ?? "";
             string link = details.deeplinkurl ?? "";
             bool hasLink = link.StartsWith("http", StringComparison.OrdinalIgnoreCase);
@@ -436,6 +443,13 @@ namespace InsertAffiliate
             AddStat(stats, details.referralCount.ToString(CultureInfo.InvariantCulture), "Referrals");
             AddStat(stats, FormatMoney(details.totalEarned, details.currency), "Earned");
 
+            // Reward codes are App Store codes, so they can't be redeemed on Android.
+            if (details.rewardCodes != null && details.rewardCodes.Length > 0 &&
+                Application.platform != RuntimePlatform.Android)
+            {
+                AddRewardCodes(details.rewardCodes);
+            }
+
             if (!string.IsNullOrEmpty(details.dashboardUrl))
             {
                 string dashboardUrl = details.dashboardUrl;
@@ -443,6 +457,47 @@ namespace InsertAffiliate
             }
 
             statusText = CreateText(body, "", SMALL_SIZE, SuccessColor, font);
+        }
+
+        private void AddRewardCodes(ReferralRewardCode[] rewardCodes)
+        {
+            CreateText(body, "Your rewards", BODY_SIZE, TextColor, font, FontStyle.Bold, TextAnchor.MiddleLeft);
+
+            foreach (var reward in rewardCodes)
+            {
+                if (reward == null || string.IsNullOrEmpty(reward.code)) continue;
+
+                var row = NewRect("Reward", body);
+                var image = row.gameObject.AddComponent<Image>();
+                ApplyRounded(image, options.cornerRadius);
+                image.color = FieldColor;
+                var rowLayout = row.gameObject.AddComponent<HorizontalLayoutGroup>();
+                rowLayout.padding = new RectOffset(32, 16, 16, 16);
+                rowLayout.spacing = 24f;
+                rowLayout.childAlignment = TextAnchor.MiddleLeft;
+                rowLayout.childControlWidth = rowLayout.childControlHeight = true;
+                rowLayout.childForceExpandWidth = false;
+                rowLayout.childForceExpandHeight = false;
+
+                var codeText = CreateText(row, reward.code, BODY_SIZE, TextColor, font, FontStyle.Bold, TextAnchor.MiddleLeft);
+                codeText.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+
+                string redeemUrl = reward.redeemUrl;
+                var redeemButton = AddButton(row, "Redeem", primary, Color.white, () =>
+                {
+                    if (!string.IsNullOrEmpty(redeemUrl)) Application.OpenURL(redeemUrl);
+                });
+                var redeemLayout = redeemButton.GetComponent<LayoutElement>();
+                redeemLayout.preferredWidth = 260f;
+                redeemLayout.flexibleWidth = 0f;
+                redeemButton.interactable = !string.IsNullOrEmpty(redeemUrl);
+            }
+        }
+
+        private static bool TryParseDate(string value, out DateTime date)
+        {
+            return DateTime.TryParse(value, CultureInfo.InvariantCulture,
+                DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out date);
         }
 
         private void AddStat(Transform parent, string value, string label)

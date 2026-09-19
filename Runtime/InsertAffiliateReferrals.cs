@@ -41,6 +41,18 @@ namespace InsertAffiliate
         /// <param name="callback">Receives the result; status is "created", "verificationRequired" or "error"</param>
         public static void CreateAffiliateForUser(string email, string name, Action<ReferralResult> callback)
         {
+            CreateAffiliateForUser(email, name, null, callback);
+        }
+
+        /// <summary>
+        /// Make the app's current user an affiliate, with the accounts used to reward them automatically.
+        /// </summary>
+        /// <param name="email">The user's email (usually the app's logged-in user)</param>
+        /// <param name="name">Display name for the affiliate (optional)</param>
+        /// <param name="options">The user's RevenueCat / Adapty app user id and Google Play purchase token (optional)</param>
+        /// <param name="callback">Receives the result; status is "created", "verificationRequired" or "error"</param>
+        public static void CreateAffiliateForUser(string email, string name, ReferrerAccountOptions options, Action<ReferralResult> callback)
+        {
             if (!CanCallReferralApi(callback)) return;
 
             var payload = new ReferralEnrolPayload
@@ -48,7 +60,10 @@ namespace InsertAffiliate
                 companyId = companyCode,
                 email = (email ?? "").Trim(),
                 name = name ?? "",
-                platform = REFERRAL_PLATFORM
+                platform = REFERRAL_PLATFORM,
+                deviceId = GetOrCreateShortUniqueDeviceID(),
+                appUserId = options?.appUserId ?? "",
+                playPurchaseToken = options?.playPurchaseToken ?? ""
             };
 
             InsertAffiliateCoroutineRunner.Instance.StartCoroutine(
@@ -64,6 +79,19 @@ namespace InsertAffiliate
         /// <param name="callback">Receives the result; status is "connected", "created" or "error"</param>
         public static void VerifyAffiliateCode(string email, string code, string name, Action<ReferralResult> callback)
         {
+            VerifyAffiliateCode(email, code, name, null, callback);
+        }
+
+        /// <summary>
+        /// Finish connecting an existing affiliate, with the accounts used to reward them automatically.
+        /// </summary>
+        /// <param name="email">The same email passed to CreateAffiliateForUser</param>
+        /// <param name="code">The 6-digit code from the email</param>
+        /// <param name="name">Display name, used if the company requires a code for new referrers too (optional)</param>
+        /// <param name="options">The user's RevenueCat / Adapty app user id and Google Play purchase token (optional)</param>
+        /// <param name="callback">Receives the result; status is "connected", "created" or "error"</param>
+        public static void VerifyAffiliateCode(string email, string code, string name, ReferrerAccountOptions options, Action<ReferralResult> callback)
+        {
             if (!CanCallReferralApi(callback)) return;
 
             var payload = new ReferralVerifyPayload
@@ -72,7 +100,10 @@ namespace InsertAffiliate
                 email = (email ?? "").Trim(),
                 code = (code ?? "").Trim(),
                 name = name ?? "",
-                platform = REFERRAL_PLATFORM
+                platform = REFERRAL_PLATFORM,
+                deviceId = GetOrCreateShortUniqueDeviceID(),
+                appUserId = options?.appUserId ?? "",
+                playPurchaseToken = options?.playPurchaseToken ?? ""
             };
 
             InsertAffiliateCoroutineRunner.Instance.StartCoroutine(
@@ -105,6 +136,25 @@ namespace InsertAffiliate
 
             InsertAffiliateCoroutineRunner.Instance.StartCoroutine(
                 FetchMyAffiliateDetailsCoroutine((details, errorCode) => callback?.Invoke(details)));
+        }
+
+        /// <summary>
+        /// Save the connected referrer's RevenueCat / Adapty app user id or Google Play purchase token.
+        /// Call it when the user subscribes or logs in after joining; rewards that were waiting for
+        /// these accounts are then granted.
+        /// </summary>
+        /// <param name="options">The accounts to save</param>
+        /// <param name="callback">Receives true when saved; false when this device is not connected or the request failed</param>
+        public static void SetReferrerAccount(ReferrerAccountOptions options, Action<bool> callback = null)
+        {
+            if (!isInitialized)
+            {
+                Debug.LogError("[Insert Affiliate] SDK not initialized. Call Initialize() first.");
+                callback?.Invoke(false);
+                return;
+            }
+
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(SetReferrerAccountCoroutine(options, callback));
         }
 
         /// <summary>
@@ -411,6 +461,10 @@ namespace InsertAffiliate
                     MyAffiliateDetails details = ParseReferralJson<MyAffiliateDetails>(request.downloadHandler.text);
                     if (details != null)
                     {
+                        // JsonUtility reads a missing or null string as "" and may leave a missing array null.
+                        if (string.IsNullOrEmpty(details.premiumUntil)) details.premiumUntil = null;
+                        if (details.rewardCodes == null) details.rewardCodes = new ReferralRewardCode[0];
+
                         if (verboseLogging)
                         {
                             Debug.Log($"[Insert Affiliate] Affiliate details loaded: {details.affiliateShortCode}, referrals: {details.referralCount}");
@@ -441,6 +495,70 @@ namespace InsertAffiliate
                     Debug.Log($"[Insert Affiliate] Failed to load affiliate details: {error.errorCode} ({request.responseCode})");
                 }
                 callback?.Invoke(null, error.errorCode);
+            }
+        }
+
+        private static IEnumerator SetReferrerAccountCoroutine(ReferrerAccountOptions options, Action<bool> callback)
+        {
+            string token = GetReferrerToken();
+            if (string.IsNullOrEmpty(token))
+            {
+                if (verboseLogging)
+                {
+                    Debug.Log("[Insert Affiliate] Not connected as an affiliate on this device");
+                }
+                callback?.Invoke(false);
+                yield break;
+            }
+
+            var payload = new ReferrerIdentityPayload
+            {
+                appUserId = options?.appUserId ?? "",
+                playPurchaseToken = options?.playPurchaseToken ?? "",
+                deviceId = GetOrCreateShortUniqueDeviceID()
+            };
+
+            using (UnityWebRequest request = new UnityWebRequest($"{API_BASE_URL}{API_SDK_AFFILIATE}/me/identity", "POST"))
+            {
+                request.uploadHandler = new UploadHandlerRaw(System.Text.Encoding.UTF8.GetBytes(JsonUtility.ToJson(payload)));
+                request.downloadHandler = new DownloadHandlerBuffer();
+                request.SetRequestHeader("Content-Type", "application/json");
+                request.SetRequestHeader(TOKEN_HEADER, token);
+                request.timeout = REFERRAL_REQUEST_TIMEOUT;
+
+                yield return request.SendWebRequest();
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    ReferrerIdentityResponse response = ParseReferralJson<ReferrerIdentityResponse>(request.downloadHandler.text);
+                    bool saved = response != null && response.saved;
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Referrer account saved: {saved}");
+                    }
+                    callback?.Invoke(saved);
+                    yield break;
+                }
+
+                ReferralResult error = ErrorResultFor(request, ParseReferralJson<ReferralResponse>(request.downloadHandler.text));
+
+                // The token no longer works (revoked, or the affiliate was deleted): forget it.
+                if (request.responseCode == 401 || request.responseCode == 404)
+                {
+                    ClearReferrerToken();
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Affiliate connection no longer valid ({error.errorCode}), cleared");
+                    }
+                    callback?.Invoke(false);
+                    yield break;
+                }
+
+                if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] Failed to save referrer account: {error.errorCode} ({request.responseCode})");
+                }
+                callback?.Invoke(false);
             }
         }
 
@@ -536,6 +654,9 @@ namespace InsertAffiliate
             public string email;
             public string name;
             public string platform;
+            public string deviceId;
+            public string appUserId;
+            public string playPurchaseToken;
         }
 
         [Serializable]
@@ -546,6 +667,23 @@ namespace InsertAffiliate
             public string code;
             public string name;
             public string platform;
+            public string deviceId;
+            public string appUserId;
+            public string playPurchaseToken;
+        }
+
+        [Serializable]
+        private class ReferrerIdentityPayload
+        {
+            public string appUserId;
+            public string playPurchaseToken;
+            public string deviceId;
+        }
+
+        [Serializable]
+        private class ReferrerIdentityResponse
+        {
+            public bool saved;
         }
 
         // Success ({ status, token, affiliate }) and error ({ error, code }) bodies share this shape.
@@ -614,6 +752,31 @@ namespace InsertAffiliate
     }
 
     /// <summary>
+    /// The referrer's own accounts, used to reward them automatically. All optional.
+    /// </summary>
+    [Serializable]
+    public class ReferrerAccountOptions
+    {
+        /// <summary>The user's RevenueCat app user id or Adapty customer user id</summary>
+        public string appUserId;
+        /// <summary>The user's own Google Play subscription purchase token (Android)</summary>
+        public string playPurchaseToken;
+    }
+
+    /// <summary>
+    /// An App Store one-time offer code granted to the referrer as a reward
+    /// </summary>
+    [Serializable]
+    public class ReferralRewardCode
+    {
+        public string code;
+        /// <summary>Opens the App Store to redeem the code</summary>
+        public string redeemUrl;
+        /// <summary>ISO 8601 date and time</summary>
+        public string grantedAt;
+    }
+
+    /// <summary>
     /// A referrer's affiliate identity
     /// </summary>
     [Serializable]
@@ -647,6 +810,12 @@ namespace InsertAffiliate
         public double totalUnpaid;
         public string currency;
         public string dashboardUrl;
+        /// <summary>Rewards granted to this referrer so far</summary>
+        public int rewardsGranted;
+        /// <summary>ISO 8601 date the referrer's free premium runs until, or null</summary>
+        public string premiumUntil;
+        /// <summary>App Store one-time offer codes granted as rewards, newest first. Never null.</summary>
+        public ReferralRewardCode[] rewardCodes;
 
         public ReferrerAffiliate ToAffiliate()
         {

@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `IsUserAnAffiliate()`, `SignOutAffiliate()`, `GetReferralProgramConfig()`
   - `ShareReferralLink()` (system share sheet on iOS and Android) and `GetReferralShareText()`
   - `ShowReferAFriend()` drop-in "Refer a friend" panel built with uGUI, themeable from code or the dashboard
+  - Automatic referrer rewards: `ReferrerAccountOptions` (`appUserId`, `playPurchaseToken`) overloads of `CreateAffiliateForUser()` and `VerifyAffiliateCode()`, and `SetReferrerAccount()` for accounts added after joining
+  - Enrol and verify send this device's id (the one in the insert affiliate identifier) to block self-referrals
+  - `MyAffiliateDetails` gains `rewardsGranted`, `premiumUntil` and `rewardCodes`
+  - The panel shows "Free premium until {date}" and a "Your rewards" list of App Store codes with a "Redeem" button (hidden on Android)
 - Runtime assembly now references `UnityEngine.UI` (package dependency `com.unity.ugui`)
 
 ## [1.4.0] - 2026-05-16

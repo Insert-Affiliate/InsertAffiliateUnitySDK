@@ -900,7 +900,7 @@ The panel is built in code with uGUI (no prefab or assets to import) and handles
 
 1. **Not joined yet:** email and name fields (prefilled) and a "Get my link" button.
 2. **Email code:** if the email is already an affiliate (reinstall, new phone, existing creator), a 6-digit code is emailed. The panel shows the code field, "Verify" and "Send a new code".
-3. **Joined:** the user's code and link, "Copy" and "Share" buttons, their referral count and earnings, and "Open my dashboard".
+3. **Joined:** the user's code and link, "Copy" and "Share" buttons, their referral count and earnings, and "Open my dashboard". When the user has free premium time from rewards it shows "Free premium until {date}", and App Store reward codes are listed under "Your rewards" with a "Redeem" button (hidden on Android, where App Store codes can't be redeemed).
 
 **Options** (all optional):
 
@@ -981,6 +981,32 @@ InsertAffiliateSDK.GetReferralShareText(text =>
 - **Public API:** `GET /public/v1/affiliates/:identifier` includes a `referrals` object with the same counts.
 
 For free premium time, use Apple/Google offer codes or RevenueCat promotional entitlements rather than custom unlock codes, and never reward ratings or reviews.
+
+#### Automatic rewards
+
+Insert Affiliate can grant referrer rewards for you (set them up per verification method in the dashboard): RevenueCat or Adapty promotional access, App Store one-time offer codes, or a deferred Google Play renewal. To do that it needs the referrer's own accounts. Pass them when the user joins:
+
+```csharp
+var account = new ReferrerAccountOptions
+{
+    appUserId = Purchases.GetAppUserId(),   // RevenueCat app user id or Adapty customer user id
+    playPurchaseToken = myPlayPurchaseToken // Android: the user's own Google Play subscription purchase token
+};
+
+InsertAffiliateSDK.CreateAffiliateForUser(user.Email, user.Name, account, OnResult);
+InsertAffiliateSDK.VerifyAffiliateCode(user.Email, enteredCode, user.Name, account, OnResult);
+```
+
+If the user subscribes or logs in after joining, save the accounts then. Rewards that were waiting for them are granted:
+
+```csharp
+InsertAffiliateSDK.SetReferrerAccount(new ReferrerAccountOptions { appUserId = appUserId }, saved =>
+{
+    Debug.Log($"Referrer account saved: {saved}");
+});
+```
+
+The SDK also sends this device's id automatically, so a user can't refer themselves. `GetMyAffiliateDetails()` reports what was granted: `rewardsGranted`, `premiumUntil` (ISO date, or `null`) and `rewardCodes` (App Store codes, newest first, each with `code`, `redeemUrl` and `grantedAt`). Open `redeemUrl` with `Application.OpenURL` to redeem a code.
 
 ---
 
@@ -1089,10 +1115,15 @@ bool isInit = InsertAffiliateSDK.IsInitialized()
 ```csharp
 // Join the current user as an affiliate (status: created | verificationRequired | error)
 InsertAffiliateSDK.CreateAffiliateForUser(string email, string name, Action<ReferralResult> callback)
+InsertAffiliateSDK.CreateAffiliateForUser(string email, string name, ReferrerAccountOptions options, Action<ReferralResult> callback)
 
 // Finish reconnecting with the emailed 6-digit code (status: connected | created | error)
 InsertAffiliateSDK.VerifyAffiliateCode(string email, string code, string name, Action<ReferralResult> callback)
+InsertAffiliateSDK.VerifyAffiliateCode(string email, string code, string name, ReferrerAccountOptions options, Action<ReferralResult> callback)
 InsertAffiliateSDK.VerifyAffiliateCode(string email, string code, Action<ReferralResult> callback)
+
+// Save the referrer's app user id / Google Play purchase token after joining (true when saved)
+InsertAffiliateSDK.SetReferrerAccount(ReferrerAccountOptions options, Action<bool> callback = null)
 
 // The connected user's details and stats (null when not connected)
 InsertAffiliateSDK.GetMyAffiliateDetails(Action<MyAffiliateDetails> callback)
