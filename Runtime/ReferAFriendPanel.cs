@@ -51,6 +51,8 @@ namespace InsertAffiliate
         private const int BODY_SIZE = 38;
         private const int SMALL_SIZE = 32;
         private const float CONTROL_HEIGHT = 124f;
+        // Space kept free above and below the card, in reference pixels
+        private const float SCREEN_MARGIN = 64f;
 
         private static readonly Color CardColor = Color.white;
         private static readonly Color TextColor = new Color32(0x1F, 0x1F, 0x24, 0xFF);
@@ -68,7 +70,13 @@ namespace InsertAffiliate
         private Color primary;
         private Font font;
         private Text headlineText;
+        private RectTransform card;
+        private RectTransform header;
+        private VerticalLayoutGroup cardLayout;
         private RectTransform body;
+        private ScrollRect bodyScroll;
+        private LayoutElement bodyScrollLayout;
+        private bool bodyChanged;
         private Text statusText;
         private GameObject createdEventSystem;
         private string enteredEmail;
@@ -165,17 +173,17 @@ namespace InsertAffiliate
             Stretch(backdrop);
             backdrop.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.55f);
 
-            var card = NewRect("Card", transform);
+            card = NewRect("Card", transform);
             card.anchorMin = card.anchorMax = card.pivot = new Vector2(0.5f, 0.5f);
             card.sizeDelta = new Vector2(CARD_WIDTH, 0f);
             var cardImage = card.gameObject.AddComponent<Image>();
             ApplyRounded(cardImage, opts.cornerRadius);
             cardImage.color = CardColor;
-            var cardLayout = AddVerticalLayout(card.gameObject, 36f);
+            cardLayout = AddVerticalLayout(card.gameObject, 36f);
             cardLayout.padding = new RectOffset(64, 64, 56, 64);
             card.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            var header = NewRect("Header", card);
+            header = NewRect("Header", card);
             var headerLayout = header.gameObject.AddComponent<HorizontalLayoutGroup>();
             headerLayout.childControlWidth = headerLayout.childControlHeight = true;
             headerLayout.childForceExpandWidth = false;
@@ -191,8 +199,63 @@ namespace InsertAffiliate
             closeLayout.preferredWidth = 160f;
             closeLayout.flexibleWidth = 0f;
 
-            body = NewRect("Body", card);
+            // Everything below the header scrolls, so the card never grows past the screen
+            // and Close stays reachable however much the body holds.
+            var scroll = NewRect("BodyScroll", card);
+            bodyScrollLayout = scroll.gameObject.AddComponent<LayoutElement>();
+            bodyScrollLayout.flexibleHeight = 0f;
+
+            var viewport = NewRect("Viewport", scroll);
+            Stretch(viewport);
+            viewport.gameObject.AddComponent<RectMask2D>();
+            // Transparent image so drags anywhere in the body scroll it.
+            viewport.gameObject.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
+
+            body = NewRect("Body", viewport);
+            body.anchorMin = new Vector2(0f, 1f);
+            body.anchorMax = new Vector2(1f, 1f);
+            body.pivot = new Vector2(0.5f, 1f);
+            body.sizeDelta = Vector2.zero;
             AddVerticalLayout(body.gameObject, 28f);
+            body.gameObject.AddComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            bodyScroll = scroll.gameObject.AddComponent<ScrollRect>();
+            bodyScroll.viewport = viewport;
+            bodyScroll.content = body;
+            bodyScroll.horizontal = false;
+            bodyScroll.vertical = true;
+            bodyScroll.movementType = ScrollRect.MovementType.Clamped;
+            bodyScroll.scrollSensitivity = 40f;
+        }
+
+        private void LateUpdate()
+        {
+            FitBodyToScreen();
+        }
+
+        // The body is as tall as its content, up to what the screen leaves after the margins and the
+        // card's header and padding; beyond that it scrolls. Runs every frame, so rotation and new
+        // content are picked up before the canvas draws.
+        private void FitBodyToScreen()
+        {
+            if (body == null) return;
+            if (bodyChanged)
+            {
+                bodyChanged = false;
+                LayoutRebuilder.ForceRebuildLayoutImmediate(body);
+                bodyScroll.verticalNormalizedPosition = 1f;
+            }
+
+            float canvasHeight = ((RectTransform)transform).rect.height;
+            float chrome = cardLayout.padding.vertical + cardLayout.spacing + LayoutUtility.GetPreferredHeight(header);
+            float maxHeight = Mathf.Max(0f, canvasHeight - 2f * SCREEN_MARGIN - chrome);
+            float height = Mathf.Min(LayoutUtility.GetPreferredHeight(body), maxHeight);
+
+            if (!Mathf.Approximately(bodyScrollLayout.preferredHeight, height))
+            {
+                bodyScrollLayout.minHeight = bodyScrollLayout.preferredHeight = height;
+                LayoutRebuilder.ForceRebuildLayoutImmediate(card);
+            }
         }
 
         private void ClearBody()
@@ -204,6 +267,7 @@ namespace InsertAffiliate
                 Destroy(child);
             }
             statusText = null;
+            bodyChanged = true;
         }
 
         // States
