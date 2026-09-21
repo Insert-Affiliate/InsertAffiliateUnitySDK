@@ -21,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ReferralRewardCode.store` (`app_store` or `google_play`, missing means `app_store`) with `IsAppStore` / `IsGooglePlay`, and `RewardCodesForPlatform()`: the panel lists App Store codes on iOS, Google Play promo codes on Android and every code elsewhere
   - The panel shows "Free premium until {date}" and a "Your rewards" list of the phone's store codes with a "Redeem" button
   - `ReferAFriendOptions.appUserId` and `playPurchaseToken`: the panel passes them when the user joins or verifies, and saves them once with `SetReferrerAccount()` when it opens for a user who has already joined
+  - `ReferAFriendOptions.strings`: a `ReferralStrings` with one optional field per label on the panel, for translation or different wording. A field left null or blank keeps the English default, and `{email}` and `{date}` are replaced wherever the value puts them
 - Runtime assembly now references `UnityEngine.UI` (package dependency `com.unity.ugui`)
 
 ## [1.4.0] - 2026-05-16

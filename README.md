@@ -915,6 +915,7 @@ The panel is built in code with uGUI (no prefab or assets to import) and handles
 | `cornerRadius` | Corner radius of the card, buttons and fields (default `24`) |
 | `sortingOrder` | Canvas sorting order so the panel draws above your UI (default `1000`) |
 | `onClose` | Called when the user closes the panel |
+| `strings` | Replaces the panel's labels, for translation or different wording (see below) |
 
 Close it from code with `ReferAFriendPanel.Hide()`; `ReferAFriendPanel.IsShowing` tells you whether it is open.
 
@@ -922,6 +923,76 @@ Close it from code with `ReferAFriendPanel.Hide()`; `ReferAFriendPanel.IsShowing
 - The panel needs an `EventSystem` to receive taps. If your scene has none, it adds one with a `StandaloneInputModule` (removed again on close). Projects that use only the new Input System should keep their own `EventSystem` with an `InputSystemUIInputModule` in the scene.
 - **Share** opens the system share sheet on iOS and Android. In the Editor and on desktop it copies the text to the clipboard and shows "Copied".
 - The SDK never asks for Contacts access and nothing is gated behind sharing, in line with App Store and Google Play rules.
+
+#### Translating the panel
+
+Every label is a field on `ReferralStrings`. Set only the ones you want to change: a field left null or blank keeps the English default, so a future SDK release can add labels without breaking your wording.
+
+```csharp
+InsertAffiliateSDK.ShowReferAFriend(new ReferAFriendOptions
+{
+    email = currentUser.Email,
+    headline = "Invita a un amigo",       // headline and rewardText stay their own options
+    strings = new ReferralStrings
+    {
+        EmailLabel = "Correo electronico",
+        NameLabel = "Nombre",
+        JoinButton = "Obtener mi enlace",
+        CodeSentNotice = "Enviamos un codigo de 6 digitos a {email}.",
+        VerifyButton = "Verificar",
+        CopyButton = "Copiar",
+        ShareButton = "Compartir",
+        ReferralsLabel = "Referidos",
+        EarnedLabel = "Ganado",
+        PremiumUntil = "Premium gratis hasta {date}",
+        ErrorNetwork = "Sin conexion. Intentalo de nuevo."
+    }
+});
+```
+
+Keep the placeholders: `{email}` in `CodeSentNotice` and `{date}` in `PremiumUntil` are replaced with the user's email and the date their free premium ends. A value without a placeholder is shown as it is.
+
+| Field | Default |
+|---|---|
+| `EmailLabel` | Email |
+| `NameLabel` | Name |
+| `JoinPrompt` | Get your own link to share with friends. |
+| `JoinButton` | Get my link |
+| `CodeLabel` | 6-digit code |
+| `CodeSentNotice` | We emailed a 6-digit code to {email}. Enter it below to connect this device. |
+| `CodeLengthNotice` | Enter the 6-digit code from the email. |
+| `VerifyButton` | Verify |
+| `ResendButton` | Send a new code |
+| `CodeResentNotice` | A new code is on its way. |
+| `DifferentEmailButton` | Use a different email |
+| `CodeLabelTitle` | Your code |
+| `CopyButton` | Both copy buttons at once |
+| `CopyLinkButton` | Copy link |
+| `CopyCodeButton` | Copy code |
+| `CopiedNotice` | Copied |
+| `ShareButton` | Share |
+| `ShareCopiedNotice` | Copied. Paste it anywhere to share. |
+| `ReferralsLabel` | Referrals |
+| `EarnedLabel` | Earned |
+| `PremiumUntil` | Free premium until {date} |
+| `RewardsHeading` | Your rewards |
+| `RedeemButton` | Redeem |
+| `DashboardLink` | Open my dashboard |
+| `CloseButton` | Close |
+| `Loading` | Loading... |
+| `BusyButton` | Please wait... |
+| `SendingButton` | Sending... |
+| `TryAgainButton` | Try again |
+| `ErrorProgramDisabled` | Referrals are not available in this app right now. |
+| `ErrorAffiliateLimitReached` | The referral program is full right now. Please try again later. |
+| `ErrorInvalidCode` | That code is wrong or has expired. |
+| `ErrorTooManyCodes` | Too many codes requested. Please wait a while and try again. |
+| `ErrorRateLimited` | Too many attempts. Please try again later. |
+| `ErrorInvalidEmail` | Please enter a valid email address. |
+| `ErrorNetwork` | Could not connect. Check your connection and try again. |
+| `ErrorServer` | Something went wrong. Please try again. |
+
+The two copy buttons share `CopyButton`: set it to translate both, or set `CopyLinkButton` and `CopyCodeButton` to word them separately. `headline` and `rewardText` are not in the table because they stay their own options, set in the dashboard and overridable per call.
 
 ### Build your own UI
 
