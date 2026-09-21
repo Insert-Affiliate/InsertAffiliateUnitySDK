@@ -994,7 +994,26 @@ Keep the placeholders: `{email}` in `CodeSentNotice` and `{date}` in `PremiumUnt
 
 The two copy buttons share `CopyButton`: set it to translate both, or set `CopyLinkButton` and `CopyCodeButton` to word them separately. `headline` and `rewardText` are not in the table because they stay their own options, set in the dashboard and overridable per call.
 
-### Build your own UI
+### Build your own screen
+
+Everything the drop-in panel does is a public method, so you can skip it and build the screen yourself. Call them in this order and handle these states:
+
+| State | Call | Then |
+|---|---|---|
+| Not enrolled | `IsUserAnAffiliate()` is false | Ask for an email and name, then `CreateAffiliateForUser(email, name, account, callback)` |
+| Code needed | result `IsVerificationRequired` | Ask for the 6-digit code, then `VerifyAffiliateCode(email, code, name, account, callback)`. Call `CreateAffiliateForUser` again to email a new code. `VerifyAffiliateCode` normalizes what you pass (every Unicode decimal digit becomes 0-9, everything else is dropped), so the raw field text is fine |
+| Enrolled | result `IsConnected`, or `IsUserAnAffiliate()` is true | `GetMyAffiliateDetails(callback)` for the code, link, `referralCount` and earnings |
+| Rewards | `details.rewardsGranted`, `details.premiumUntil`, `details.rewardCodes` | `RewardCodesForPlatform(details.rewardCodes, Application.platform)` for the codes this phone can redeem, then `Application.OpenURL(code.redeemUrl)` |
+| Sharing | `ShareReferralLink(message)` for the system share sheet, or `GetReferralShareText(callback, message)` for your own | `GUIUtility.systemCopyBuffer = details.deeplinkurl` to copy |
+| Program settings | `GetReferralProgramConfig(callback)` | `enabled`, `companyName`, `referralTrigger`, `headline`, `rewardText`, `primaryColor` |
+| Account for rewards | `SetReferrerAccount(options, callback)` | Call it when the user subscribes or logs in after joining |
+| Logout | `SignOutAffiliate()` | Disconnects this device only |
+| Errors | `result.errorCode` and `result.errorMessage` | Show your own wording per `ReferralErrorCodes` |
+
+Two things the panel does that a custom screen cannot copy exactly:
+
+- `GetMyAffiliateDetails` and `GetReferralProgramConfig` pass `null` for every failure, so "not connected" and "the network is down" look the same. Check `IsUserAnAffiliate()` first to tell them apart, and offer a retry for the rest.
+- The system share sheet is reachable only through `ShareReferralLink`, which shares the user's own link. To share other text, use `GetReferralShareText` with your own share plugin.
 
 ```csharp
 // 1. Join (or reconnect) the current user
