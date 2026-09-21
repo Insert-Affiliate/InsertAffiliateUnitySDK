@@ -36,6 +36,127 @@ namespace InsertAffiliate
         public int sortingOrder = 1000;
         /// <summary>Called when the user closes the panel</summary>
         public Action onClose;
+        /// <summary>Replaces the panel's labels, for translation or different wording. Every field is optional.</summary>
+        public ReferralStrings strings;
+    }
+
+    /// <summary>
+    /// Every label on the drop-in "Refer a friend" panel. Set only the ones to change: a field left
+    /// null or blank keeps the English default. Placeholders in a value are replaced, so keep them:
+    /// {date} in PremiumUntil and {email} in CodeSentNotice.
+    /// </summary>
+    [Serializable]
+    public class ReferralStrings
+    {
+        // Joining
+        public string EmailLabel;
+        public string NameLabel;
+        /// <summary>Shown above the join form when the dashboard has no reward text</summary>
+        public string JoinPrompt;
+        public string JoinButton;
+
+        // Email code step
+        public string CodeLabel;
+        /// <summary>May use {email}</summary>
+        public string CodeSentNotice;
+        /// <summary>Shown when the field does not hold 6 digits</summary>
+        public string CodeLengthNotice;
+        public string VerifyButton;
+        public string ResendButton;
+        public string CodeResentNotice;
+        public string DifferentEmailButton;
+
+        // Joined
+        public string CodeLabelTitle;
+        /// <summary>Both copy buttons at once; CopyLinkButton and CopyCodeButton override it</summary>
+        public string CopyButton;
+        public string CopyLinkButton;
+        public string CopyCodeButton;
+        public string CopiedNotice;
+        public string ShareButton;
+        /// <summary>Shown when sharing falls back to the clipboard (Editor, desktop)</summary>
+        public string ShareCopiedNotice;
+        public string ReferralsLabel;
+        public string EarnedLabel;
+        /// <summary>May use {date}</summary>
+        public string PremiumUntil;
+        public string RewardsHeading;
+        public string RedeemButton;
+        public string DashboardLink;
+
+        // Frame and states
+        public string CloseButton;
+        public string Loading;
+        /// <summary>A button's label while its request is in flight</summary>
+        public string BusyButton;
+        /// <summary>The resend button's label while its request is in flight</summary>
+        public string SendingButton;
+        public string TryAgainButton;
+
+        // Errors, by the server's error code
+        public string ErrorProgramDisabled;
+        public string ErrorAffiliateLimitReached;
+        public string ErrorInvalidCode;
+        public string ErrorTooManyCodes;
+        public string ErrorRateLimited;
+        public string ErrorInvalidEmail;
+        public string ErrorNetwork;
+        public string ErrorServer;
+
+        private static string Or(string value, string fallback)
+        {
+            return string.IsNullOrWhiteSpace(value) ? fallback : value;
+        }
+
+        // The panel's labels: the app's value where it set one, the English default everywhere else.
+        internal static ReferralStrings WithDefaults(ReferralStrings overrides)
+        {
+            ReferralStrings o = overrides ?? new ReferralStrings();
+            return new ReferralStrings
+            {
+                EmailLabel = Or(o.EmailLabel, "Email"),
+                NameLabel = Or(o.NameLabel, "Name"),
+                JoinPrompt = Or(o.JoinPrompt, "Get your own link to share with friends."),
+                JoinButton = Or(o.JoinButton, "Get my link"),
+
+                CodeLabel = Or(o.CodeLabel, "6-digit code"),
+                CodeSentNotice = Or(o.CodeSentNotice, "We emailed a 6-digit code to {email}. Enter it below to connect this device."),
+                CodeLengthNotice = Or(o.CodeLengthNotice, "Enter the 6-digit code from the email."),
+                VerifyButton = Or(o.VerifyButton, "Verify"),
+                ResendButton = Or(o.ResendButton, "Send a new code"),
+                CodeResentNotice = Or(o.CodeResentNotice, "A new code is on its way."),
+                DifferentEmailButton = Or(o.DifferentEmailButton, "Use a different email"),
+
+                CodeLabelTitle = Or(o.CodeLabelTitle, "Your code"),
+                CopyButton = Or(o.CopyButton, "Copy"),
+                CopyLinkButton = Or(o.CopyLinkButton, Or(o.CopyButton, "Copy link")),
+                CopyCodeButton = Or(o.CopyCodeButton, Or(o.CopyButton, "Copy code")),
+                CopiedNotice = Or(o.CopiedNotice, "Copied"),
+                ShareButton = Or(o.ShareButton, "Share"),
+                ShareCopiedNotice = Or(o.ShareCopiedNotice, "Copied. Paste it anywhere to share."),
+                ReferralsLabel = Or(o.ReferralsLabel, "Referrals"),
+                EarnedLabel = Or(o.EarnedLabel, "Earned"),
+                PremiumUntil = Or(o.PremiumUntil, "Free premium until {date}"),
+                RewardsHeading = Or(o.RewardsHeading, "Your rewards"),
+                RedeemButton = Or(o.RedeemButton, "Redeem"),
+                DashboardLink = Or(o.DashboardLink, "Open my dashboard"),
+
+                CloseButton = Or(o.CloseButton, "Close"),
+                Loading = Or(o.Loading, "Loading..."),
+                BusyButton = Or(o.BusyButton, "Please wait..."),
+                SendingButton = Or(o.SendingButton, "Sending..."),
+                TryAgainButton = Or(o.TryAgainButton, "Try again"),
+
+                ErrorProgramDisabled = Or(o.ErrorProgramDisabled, "Referrals are not available in this app right now."),
+                ErrorAffiliateLimitReached = Or(o.ErrorAffiliateLimitReached, "The referral program is full right now. Please try again later."),
+                ErrorInvalidCode = Or(o.ErrorInvalidCode, "That code is wrong or has expired."),
+                ErrorTooManyCodes = Or(o.ErrorTooManyCodes, "Too many codes requested. Please wait a while and try again."),
+                ErrorRateLimited = Or(o.ErrorRateLimited, "Too many attempts. Please try again later."),
+                ErrorInvalidEmail = Or(o.ErrorInvalidEmail, "Please enter a valid email address."),
+                ErrorNetwork = Or(o.ErrorNetwork, "Could not connect. Check your connection and try again."),
+                ErrorServer = Or(o.ErrorServer, "Something went wrong. Please try again."),
+            };
+        }
     }
 
     /// <summary>
@@ -66,6 +187,7 @@ namespace InsertAffiliate
 
         private ReferAFriendOptions options;
         private ReferralProgramConfig config;
+        private ReferralStrings text;
         private MyAffiliateDetails details;
         private Color primary;
         private Font font;
@@ -175,6 +297,7 @@ namespace InsertAffiliate
         private void Build(ReferAFriendOptions opts)
         {
             options = opts;
+            text = ReferralStrings.WithDefaults(opts.strings);
             font = opts.font != null ? opts.font : DefaultFont();
             primary = ResolvePrimaryColor();
 
@@ -207,7 +330,7 @@ namespace InsertAffiliate
             headlineText = CreateText(header, ResolveHeadline(), TITLE_SIZE, TextColor, font, FontStyle.Bold, TextAnchor.MiddleLeft);
             headlineText.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
 
-            var closeButton = AddTextButton(header, "Close", MutedColor, Close);
+            var closeButton = AddTextButton(header, text.CloseButton, MutedColor, Close);
             var closeLayout = closeButton.GetComponent<LayoutElement>();
             closeLayout.preferredWidth = 160f;
             closeLayout.flexibleWidth = 0f;
@@ -360,7 +483,7 @@ namespace InsertAffiliate
         private void ShowLoading()
         {
             ClearBody();
-            CreateText(body, "Loading...", BODY_SIZE, MutedColor, font);
+            CreateText(body, text.Loading, BODY_SIZE, MutedColor, font);
         }
 
         private void ShowNotice(string message)
@@ -373,7 +496,7 @@ namespace InsertAffiliate
         {
             ClearBody();
             CreateText(body, message, BODY_SIZE, ErrorColor, font);
-            AddButton(body, "Try again", primary, Color.white, Load);
+            AddButton(body, text.TryAgainButton, primary, Color.white, Load);
         }
 
         private void ShowJoin()
@@ -381,14 +504,14 @@ namespace InsertAffiliate
             ClearBody();
 
             string reward = ResolveRewardText();
-            CreateText(body, string.IsNullOrEmpty(reward) ? "Get your own link to share with friends." : reward,
+            CreateText(body, string.IsNullOrEmpty(reward) ? text.JoinPrompt : reward,
                 BODY_SIZE, MutedColor, font);
 
-            var emailField = AddInput(body, "Email", enteredEmail ?? options.email, InputField.ContentType.EmailAddress);
-            var nameField = AddInput(body, "Name", enteredName ?? options.name, InputField.ContentType.Name);
+            var emailField = AddInput(body, text.EmailLabel, enteredEmail ?? options.email, InputField.ContentType.EmailAddress);
+            var nameField = AddInput(body, text.NameLabel, enteredName ?? options.name, InputField.ContentType.Name);
 
             Button joinButton = null;
-            joinButton = AddButton(body, "Get my link", primary, Color.white, () =>
+            joinButton = AddButton(body, text.JoinButton, primary, Color.white, () =>
             {
                 string email = emailField.text.Trim();
                 if (!LooksLikeEmail(email))
@@ -399,7 +522,7 @@ namespace InsertAffiliate
                 enteredEmail = email;
                 enteredName = nameField.text.Trim();
 
-                SetBusy(joinButton, "Please wait...");
+                SetBusy(joinButton, text.BusyButton);
                 int requestStep = step;
                 InsertAffiliateSDK.CreateAffiliateForUser(enteredEmail, enteredName, ReferrerAccount(), result =>
                 {
@@ -410,7 +533,7 @@ namespace InsertAffiliate
                     else if (result.IsVerificationRequired) ShowCode();
                     else
                     {
-                        SetIdle(joinButton, "Get my link");
+                        SetIdle(joinButton, text.JoinButton);
                         SetStatus(MessageFor(result.errorCode), ErrorColor);
                     }
                 });
@@ -423,12 +546,12 @@ namespace InsertAffiliate
         {
             ClearBody();
 
-            CreateText(body, $"We emailed a 6-digit code to {enteredEmail}. Enter it below to connect this device.",
+            CreateText(body, text.CodeSentNotice.Replace("{email}", enteredEmail ?? ""),
                 BODY_SIZE, MutedColor, font);
 
             // Any characters are accepted, so a pasted "123 456" or digits from another script work;
             // the code is normalized to ASCII digits and Verify is enabled at exactly 6.
-            var codeField = AddInput(body, "6-digit code", "", InputField.ContentType.Custom);
+            var codeField = AddInput(body, text.CodeLabel, "", InputField.ContentType.Custom);
             codeField.lineType = InputField.LineType.SingleLine;
             codeField.inputType = InputField.InputType.Standard;
             codeField.keyboardType = TouchScreenKeyboardType.NumberPad;
@@ -437,17 +560,17 @@ namespace InsertAffiliate
 
             Button verifyButton = null;
             bool verifying = false;
-            verifyButton = AddButton(body, "Verify", primary, Color.white, () =>
+            verifyButton = AddButton(body, text.VerifyButton, primary, Color.white, () =>
             {
                 string code = InsertAffiliateSDK.NormalizeVerificationCode(codeField.text);
                 if (code.Length != 6)
                 {
-                    SetStatus("Enter the 6-digit code from the email.", ErrorColor);
+                    SetStatus(text.CodeLengthNotice, ErrorColor);
                     return;
                 }
 
                 verifying = true;
-                SetBusy(verifyButton, "Please wait...");
+                SetBusy(verifyButton, text.BusyButton);
                 int requestStep = step;
                 InsertAffiliateSDK.VerifyAffiliateCode(enteredEmail, code, enteredName, ReferrerAccount(), result =>
                 {
@@ -458,7 +581,7 @@ namespace InsertAffiliate
                     else
                     {
                         verifying = false;
-                        SetIdle(verifyButton, "Verify");
+                        SetIdle(verifyButton, text.VerifyButton);
                         if (verifyButton != null) verifyButton.interactable = HasSixDigits(codeField.text);
                         SetStatus(MessageFor(result.errorCode), ErrorColor);
                     }
@@ -471,9 +594,9 @@ namespace InsertAffiliate
             });
 
             Button resendButton = null;
-            resendButton = AddTextButton(body, "Send a new code", primary, () =>
+            resendButton = AddTextButton(body, text.ResendButton, primary, () =>
             {
-                SetBusy(resendButton, "Sending...");
+                SetBusy(resendButton, text.SendingButton);
                 int requestStep = step;
                 InsertAffiliateSDK.CreateAffiliateForUser(enteredEmail, enteredName, ReferrerAccount(), result =>
                 {
@@ -485,13 +608,13 @@ namespace InsertAffiliate
                         return;
                     }
                     if (requestStep != step) return;
-                    SetIdle(resendButton, "Send a new code");
-                    if (result.IsVerificationRequired) SetStatus("A new code is on its way.", SuccessColor);
+                    SetIdle(resendButton, text.ResendButton);
+                    if (result.IsVerificationRequired) SetStatus(text.CodeResentNotice, SuccessColor);
                     else SetStatus(MessageFor(result.errorCode), ErrorColor);
                 });
             });
 
-            AddTextButton(body, "Use a different email", MutedColor, ShowJoin);
+            AddTextButton(body, text.DifferentEmailButton, MutedColor, ShowJoin);
 
             statusText = CreateText(body, "", SMALL_SIZE, ErrorColor, font);
         }
@@ -510,7 +633,7 @@ namespace InsertAffiliate
             if (TryParseDate(details.premiumUntil, out premiumUntil) && premiumUntil > DateTime.UtcNow)
             {
                 string date = premiumUntil.ToLocalTime().ToString("D", CultureInfo.CurrentCulture);
-                CreateText(body, $"Free premium until {date}", BODY_SIZE, SuccessColor, font, FontStyle.Bold);
+                CreateText(body, text.PremiumUntil.Replace("{date}", date), BODY_SIZE, SuccessColor, font, FontStyle.Bold);
             }
 
             string code = details.affiliateShortCode ?? "";
@@ -523,7 +646,7 @@ namespace InsertAffiliate
             ApplyRounded(codeImage, options.cornerRadius);
             codeImage.color = new Color(primary.r, primary.g, primary.b, 0.08f);
             AddVerticalLayout(codeBox.gameObject, 8f).padding = new RectOffset(32, 32, 28, 28);
-            CreateText(codeBox, "Your code", SMALL_SIZE, MutedColor, font);
+            CreateText(codeBox, text.CodeLabelTitle, SMALL_SIZE, MutedColor, font);
             CreateText(codeBox, code, 72, primary, font, FontStyle.Bold);
             if (hasLink)
             {
@@ -539,22 +662,22 @@ namespace InsertAffiliate
             actionsLayout.childForceExpandHeight = false;
 
             string copyValue = hasLink ? link : code;
-            var copyButton = AddButton(actions, hasLink ? "Copy link" : "Copy code",
+            var copyButton = AddButton(actions, hasLink ? text.CopyLinkButton : text.CopyCodeButton,
                 new Color(primary.r, primary.g, primary.b, 0.12f), primary, () =>
                 {
                     GUIUtility.systemCopyBuffer = copyValue;
-                    SetStatus("Copied", SuccessColor);
+                    SetStatus(text.CopiedNotice, SuccessColor);
                 });
             copyButton.GetComponent<LayoutElement>().flexibleWidth = 1f;
 
-            var shareButton = AddButton(actions, "Share", primary, Color.white, () =>
+            var shareButton = AddButton(actions, text.ShareButton, primary, Color.white, () =>
             {
-                string text = InsertAffiliateSDK.BuildReferralShareText(details.ToAffiliate(),
+                string shareText = InsertAffiliateSDK.BuildReferralShareText(details.ToAffiliate(),
                     config != null ? config.companyName : InsertAffiliateSDK.ReferralCompanyName, options.shareMessage);
-                if (string.IsNullOrEmpty(text)) return;
-                if (!InsertAffiliateSDK.ShareText(text))
+                if (string.IsNullOrEmpty(shareText)) return;
+                if (!InsertAffiliateSDK.ShareText(shareText))
                 {
-                    SetStatus("Copied. Paste it anywhere to share.", SuccessColor);
+                    SetStatus(text.ShareCopiedNotice, SuccessColor);
                 }
             });
             shareButton.GetComponent<LayoutElement>().flexibleWidth = 1f;
@@ -566,8 +689,8 @@ namespace InsertAffiliate
             statsLayout.childControlWidth = statsLayout.childControlHeight = true;
             statsLayout.childForceExpandWidth = true;
             statsLayout.childForceExpandHeight = false;
-            AddStat(stats, details.referralCount.ToString(CultureInfo.InvariantCulture), "Referrals");
-            AddStat(stats, FormatMoney(details.totalEarned, details.currency), "Earned");
+            AddStat(stats, details.referralCount.ToString(CultureInfo.InvariantCulture), text.ReferralsLabel);
+            AddStat(stats, FormatMoney(details.totalEarned, details.currency), text.EarnedLabel);
 
             // Only codes this phone's store can redeem (App Store on iOS, Google Play on Android).
             var rewardCodes = InsertAffiliateSDK.RewardCodesForPlatform(details.rewardCodes, Application.platform);
@@ -579,7 +702,7 @@ namespace InsertAffiliate
             if (!string.IsNullOrEmpty(details.dashboardUrl))
             {
                 string dashboardUrl = details.dashboardUrl;
-                AddTextButton(body, "Open my dashboard", primary, () => Application.OpenURL(dashboardUrl));
+                AddTextButton(body, text.DashboardLink, primary, () => Application.OpenURL(dashboardUrl));
             }
 
             statusText = CreateText(body, "", SMALL_SIZE, SuccessColor, font);
@@ -587,7 +710,7 @@ namespace InsertAffiliate
 
         private void AddRewardCodes(ReferralRewardCode[] rewardCodes)
         {
-            CreateText(body, "Your rewards", BODY_SIZE, TextColor, font, FontStyle.Bold, TextAnchor.MiddleLeft);
+            CreateText(body, text.RewardsHeading, BODY_SIZE, TextColor, font, FontStyle.Bold, TextAnchor.MiddleLeft);
 
             foreach (var reward in rewardCodes)
             {
@@ -609,7 +732,7 @@ namespace InsertAffiliate
                 codeText.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
 
                 string redeemUrl = reward.redeemUrl;
-                var redeemButton = AddButton(row, "Redeem", primary, Color.white, () =>
+                var redeemButton = AddButton(row, text.RedeemButton, primary, Color.white, () =>
                 {
                     if (!string.IsNullOrEmpty(redeemUrl)) Application.OpenURL(redeemUrl);
                 });
@@ -682,26 +805,26 @@ namespace InsertAffiliate
             return config != null ? config.rewardText : null;
         }
 
-        private static string MessageFor(string errorCode)
+        private string MessageFor(string errorCode)
         {
             switch (errorCode)
             {
                 case ReferralErrorCodes.ProgramDisabled:
-                    return "Referrals are not available in this app right now.";
+                    return text.ErrorProgramDisabled;
                 case ReferralErrorCodes.AffiliateLimitReached:
-                    return "The referral program is full right now. Please try again later.";
+                    return text.ErrorAffiliateLimitReached;
                 case ReferralErrorCodes.InvalidCode:
-                    return "That code is wrong or has expired.";
+                    return text.ErrorInvalidCode;
                 case ReferralErrorCodes.TooManyCodes:
-                    return "Too many codes requested. Please wait a while and try again.";
+                    return text.ErrorTooManyCodes;
                 case ReferralErrorCodes.RateLimited:
-                    return "Too many attempts. Please try again later.";
+                    return text.ErrorRateLimited;
                 case ReferralErrorCodes.InvalidEmail:
-                    return "Please enter a valid email address.";
+                    return text.ErrorInvalidEmail;
                 case ReferralErrorCodes.NetworkError:
-                    return "Could not connect. Check your connection and try again.";
+                    return text.ErrorNetwork;
                 default:
-                    return "Something went wrong. Please try again.";
+                    return text.ErrorServer;
             }
         }
 
