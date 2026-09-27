@@ -11,7 +11,7 @@ namespace InsertAffiliate
     /// Insert Affiliate SDK for Unity
     /// Provides affiliate tracking, deep linking, and attribution functionality
     /// </summary>
-    public static class InsertAffiliateSDK
+    public static partial class InsertAffiliateSDK
     {
         // SDK Configuration
         private static string companyCode;

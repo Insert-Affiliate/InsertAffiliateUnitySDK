@@ -5,6 +5,25 @@ All notable changes to the Insert Affiliate Unity SDK will be documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **In-app referrals** - turn your app's users into affiliates and let them refer friends
+  - `CreateAffiliateForUser()`, `VerifyAffiliateCode()` to join or reconnect a user (6-digit email code for existing affiliates)
+  - `GetMyAffiliateDetails()` for the user's link, referral counts and earnings
+  - `IsUserAnAffiliate()`, `SignOutAffiliate()`, `GetReferralProgramConfig()`
+  - `ShareReferralLink()` (system share sheet on iOS and Android) and `GetReferralShareText()`
+  - `ShowReferAFriend()` drop-in "Refer a friend" panel built with uGUI, themeable from code or the dashboard
+  - Automatic referrer rewards: `ReferrerAccountOptions` (`appUserId`, `playPurchaseToken`) overloads of `CreateAffiliateForUser()` and `VerifyAffiliateCode()`, and `SetReferrerAccount()` for accounts added after joining
+  - Enrol and verify send this device's id (the one in the insert affiliate identifier) to block self-referrals
+  - Enrol, verify and `SetReferrerAccount()` send the phone's OS (`os`: `ios` or `android`) so the server can pick the referrer's reward store; left out in the editor and on other platforms
+  - `MyAffiliateDetails` gains `rewardsGranted`, `premiumUntil` and `rewardCodes`
+  - `ReferralRewardCode.store` (`app_store` or `google_play`, missing means `app_store`) with `IsAppStore` / `IsGooglePlay`, and `RewardCodesForPlatform()`: the panel lists App Store codes on iOS, Google Play promo codes on Android and every code elsewhere
+  - The panel shows "Free premium until {date}" and a "Your rewards" list of the phone's store codes with a "Redeem" button
+  - `ReferAFriendOptions.appUserId` and `playPurchaseToken`: the panel passes them when the user joins or verifies, and saves them once with `SetReferrerAccount()` when it opens for a user who has already joined
+  - `ReferAFriendOptions.strings`: a `ReferralStrings` with one optional field per label on the panel, for translation or different wording. A field left null or blank keeps the English default, and `{email}` and `{date}` are replaced wherever the value puts them
+- Runtime assembly now references `UnityEngine.UI` (package dependency `com.unity.ugui`)
+
 ## [1.4.0] - 2026-05-16
 
 ### Added

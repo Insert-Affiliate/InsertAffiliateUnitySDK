@@ -20,5 +20,8 @@
     "type": "git",
     "url": "https://github.com/Insert-Affiliate/InsertAffiliateUnitySDK.git"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "com.unity.ugui": "1.0.0"
+  }
 }
