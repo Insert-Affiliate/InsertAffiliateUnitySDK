@@ -138,6 +138,8 @@ namespace InsertAffiliate
         private const string API_TRACK_EVENT = "/v1/trackEvent";
         private const string API_EXPECTED_TRANSACTION = "/v1/api/app-store-webhook/create-expected-transaction";
         private const string API_CHECK_AFFILIATE = "/V1/checkAffiliateExists";
+        private const string LINK_BASE_URL = "https://insertaffiliate.link";
+        private const string API_GET_DEEP_LINK_DATA = "/V1/getDeepLinkData";
         private const string API_SDK_INIT = "/V1/onboarding/sdk-init";
         private const string API_AFFILIATE_ASSOCIATED = "/V1/onboarding/affiliate-associated";
 
@@ -1596,7 +1598,7 @@ namespace InsertAffiliate
                     {
                         Debug.Log($"[Insert Affiliate] Android query parameter detected - Short code: {shortCode}");
                     }
-                    FetchDeepLinkData(shortCode, AffiliateAssociationSource.DeepLinkAndroid);
+                    ValidateAndStoreShortCode(shortCode, companyCode, AffiliateAssociationSource.DeepLinkAndroid);
                     return true;
                 }
             }
@@ -1633,7 +1635,7 @@ namespace InsertAffiliate
                     Debug.Log($"[Insert Affiliate] Custom URL scheme detected - Short code: {shortCode}");
                 }
 
-                FetchDeepLinkData(shortCode, AffiliateAssociationSource.DeepLinkIos);
+                ValidateAndStoreShortCode(shortCode, companyCode, AffiliateAssociationSource.DeepLinkIos);
                 return true;
             }
             else if (url.Contains("insertaffiliate.link"))
@@ -1672,7 +1674,7 @@ namespace InsertAffiliate
                         Debug.LogWarning($"[Insert Affiliate] URL company code ({linkCompanyCode}) doesn't match initialized company code ({companyCode})");
                     }
 
-                    FetchDeepLinkData(shortCode, AffiliateAssociationSource.UniversalLink);
+                    ValidateAndStoreShortCode(shortCode, linkCompanyCode, AffiliateAssociationSource.UniversalLink);
                     return true;
                 }
                 else
@@ -1708,13 +1710,143 @@ namespace InsertAffiliate
                             Debug.Log($"[Insert Affiliate] Custom domain universal link detected - Short code: {shortCode}");
                         }
 
-                        FetchDeepLinkData(shortCode, AffiliateAssociationSource.UniversalLink);
+                        ValidateAndStoreShortCode(shortCode, companyCode, AffiliateAssociationSource.UniversalLink);
                         return true;
                     }
                 }
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Ask the backend to validate a short code from a link, then store the server's user code
+        /// </summary>
+        private static void ValidateAndStoreShortCode(string shortCode, string linkCompanyCode, AffiliateAssociationSource source)
+        {
+            // Storing the same identifier is a no-op, so skip the call (it counts as a click)
+            string alreadyStored = $"{shortCode}-{GetOrCreateShortUniqueDeviceID()}";
+            string existingIdentifier = PlayerPrefs.GetString(KEY_INSERT_AFFILIATE_IDENTIFIER, string.Empty);
+            if (string.Equals(existingIdentifier, alreadyStored, StringComparison.OrdinalIgnoreCase))
+            {
+                if (verboseLogging)
+                {
+                    Debug.Log($"[Insert Affiliate] Short code '{shortCode}' is already stored, skipping lookup");
+                }
+                return;
+            }
+
+            InsertAffiliateCoroutineRunner.Instance.StartCoroutine(ValidateAndStoreShortCodeCoroutine(shortCode, linkCompanyCode, source));
+        }
+
+        private static IEnumerator ValidateAndStoreShortCodeCoroutine(string shortCode, string linkCompanyCode, AffiliateAssociationSource source)
+        {
+            string url = $"{LINK_BASE_URL}{API_GET_DEEP_LINK_DATA}/{Uri.EscapeDataString(linkCompanyCode)}/{Uri.EscapeDataString(shortCode)}";
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] Fetching deep link data from: {url}");
+            }
+
+            // When the server can't confirm or reject the code (network failure, server error, unreadable
+            // response), keep the code from the link rather than lose the attribution. Only an explicit
+            // "not found" from the server (404, or an error in the body) discards it.
+            string unverifiedReason = null;
+            DeepLinkDataLink deepLink = null;
+            string responseText = null;
+
+            using (UnityWebRequest request = UnityWebRequest.Get(url))
+            {
+                request.SetRequestHeader("Content-Type", "application/json");
+                request.timeout = 10;
+
+                yield return request.SendWebRequest();
+
+                if (request.responseCode == 404)
+                {
+                    Debug.LogError($"[Insert Affiliate] Deep link not found. Short code '{shortCode}' may not exist for company '{linkCompanyCode}'. Not storing it.");
+                    yield break;
+                }
+
+                if (request.result == UnityWebRequest.Result.ConnectionError || request.responseCode == 0)
+                {
+                    Debug.LogError($"[Insert Affiliate] Error fetching deep link data: {request.error}");
+                    unverifiedReason = "Could not reach the server";
+                }
+                else if (request.responseCode != 200)
+                {
+                    Debug.LogError($"[Insert Affiliate] API Error ({request.responseCode}): {request.downloadHandler?.text}");
+                    unverifiedReason = "The server could not confirm the short code";
+                }
+                else
+                {
+                    responseText = request.downloadHandler?.text;
+                }
+            }
+
+            if (unverifiedReason == null)
+            {
+                if (string.IsNullOrEmpty(responseText))
+                {
+                    unverifiedReason = "The server returned no data";
+                }
+                else
+                {
+                    if (verboseLogging)
+                    {
+                        Debug.Log($"[Insert Affiliate] Raw deep link API response: {responseText}");
+                    }
+
+                    DeepLinkDataResponse response = null;
+                    try
+                    {
+                        response = JsonUtility.FromJson<DeepLinkDataResponse>(responseText);
+                    }
+                    catch (Exception e)
+                    {
+                        Debug.LogError($"[Insert Affiliate] Failed to parse deep link data: {e.Message}");
+                    }
+
+                    if (response == null)
+                    {
+                        unverifiedReason = "The server response could not be parsed";
+                    }
+                    else if (!string.IsNullOrEmpty(response.error))
+                    {
+                        Debug.LogError($"[Insert Affiliate] API returned error: {response.error}. The short code '{shortCode}' was not found. Not storing it.");
+                        yield break;
+                    }
+                    else if (response.data == null || response.data.deepLink == null || string.IsNullOrEmpty(response.data.deepLink.userCode))
+                    {
+                        unverifiedReason = "The server response did not include a user code";
+                    }
+                    else
+                    {
+                        deepLink = response.data.deepLink;
+                    }
+                }
+            }
+
+            if (deepLink == null)
+            {
+                Debug.LogWarning($"[Insert Affiliate] {unverifiedReason}. Storing short code '{shortCode}' from the link without server confirmation.");
+                StoreInsertAffiliateIdentifier(shortCode, source);
+                yield break;
+            }
+
+            if (verboseLogging)
+            {
+                Debug.Log($"[Insert Affiliate] User code extracted: {deepLink.userCode}");
+            }
+
+            // Store affiliate metadata
+            PlayerPrefs.SetString(KEY_AFFILIATE_EMAIL, deepLink.affiliateName ?? "");
+            PlayerPrefs.SetString(KEY_AFFILIATE_ID, deepLink.userCode);
+            PlayerPrefs.SetString(KEY_COMPANY_NAME, "");
+            PlayerPrefs.SetString(KEY_DEEP_LINK_DATA, responseText);
+            PlayerPrefs.Save();
+
+            StoreInsertAffiliateIdentifier(deepLink.userCode, source);
         }
 
         /// <summary>
@@ -1876,6 +2008,26 @@ namespace InsertAffiliate
             public bool exists;
             public string searchType;
             public AffiliateDetails affiliate;
+        }
+
+        [Serializable]
+        private class DeepLinkDataResponse
+        {
+            public string error;
+            public DeepLinkDataBody data;
+        }
+
+        [Serializable]
+        private class DeepLinkDataBody
+        {
+            public DeepLinkDataLink deepLink;
+        }
+
+        [Serializable]
+        private class DeepLinkDataLink
+        {
+            public string userCode;
+            public string affiliateName;
         }
 
         [Serializable]
