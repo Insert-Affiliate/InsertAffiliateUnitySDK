@@ -770,11 +770,11 @@ public string GetDynamicProductId()
 </details>
 
 <details>
-<summary><strong>Event Tracking (Beta)</strong></summary>
+<summary><strong>Event Tracking</strong></summary>
 
 Track custom events for affiliate attribution beyond just purchases.
 
-**⚠️ Beta Feature:** This feature is currently in beta. While functional, we cannot guarantee it's fully resistant to tampering.
+**Note:** We cannot guarantee event tracking is fully resistant to tampering.
 
 ```csharp
 InsertAffiliateSDK.TrackEvent("user_signup");
@@ -1193,7 +1193,7 @@ long? expiryTimestamp = InsertAffiliateSDK.GetAffiliateExpiryTimestamp()
 ### Features
 
 ```csharp
-// Track event (Beta)
+// Track event
 InsertAffiliateSDK.TrackEvent(string eventName)
 
 // Get offer code

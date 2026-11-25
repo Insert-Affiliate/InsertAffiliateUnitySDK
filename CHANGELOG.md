@@ -88,7 +88,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Affiliate tracking and attribution
 - Short code support
 - Deep linking integration
-- Event tracking (Beta)
+- Event tracking
 - Offer codes / Dynamic Product IDs
 - Attribution timeout functionality
 - Insert Links support
