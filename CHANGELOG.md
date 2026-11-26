@@ -22,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - The panel shows "Free premium until {date}" and a "Your rewards" list of the phone's store codes with a "Redeem" button
   - `ReferAFriendOptions.appUserId` and `playPurchaseToken`: the panel passes them when the user joins or verifies, and saves them once with `SetReferrerAccount()` when it opens for a user who has already joined
   - `ReferAFriendOptions.strings`: a `ReferralStrings` with one optional field per label on the panel, for translation or different wording. A field left null or blank keeps the English default, and `{email}` and `{date}` are replaced wherever the value puts them
+  - `ReferralProgramConfig.showCode`: false hides the short code on the panel, which then shows the link alone (true when an older server does not send it). The code still shows when there is no link, since it is then the only thing to share
+  - `MyAffiliateDetails.rewardDaysEarned` and `earnedDisplay` (`cash`, `days`): the panel's stats show Referrals, then Earned only when `cash` and a "Days earned" stat only when `days`. Older servers show cash only. New `ReferralStrings`: `DaysEarnedLabel`, `DayUnit` and `DaysUnit` (`{count}` is replaced)
 - Runtime assembly now references `UnityEngine.UI` (package dependency `com.unity.ugui`)
 
 ## [1.4.0] - 2026-05-16
