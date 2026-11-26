@@ -43,7 +43,7 @@ namespace InsertAffiliate
     /// <summary>
     /// Every label on the drop-in "Refer a friend" panel. Set only the ones to change: a field left
     /// null or blank keeps the English default. Placeholders in a value are replaced, so keep them:
-    /// {date} in PremiumUntil and {email} in CodeSentNotice.
+    /// {date} in PremiumUntil, {email} in CodeSentNotice and {count} in DayUnit and DaysUnit.
     /// </summary>
     [Serializable]
     public class ReferralStrings
@@ -78,6 +78,11 @@ namespace InsertAffiliate
         public string ShareCopiedNotice;
         public string ReferralsLabel;
         public string EarnedLabel;
+        public string DaysEarnedLabel;
+        /// <summary>Days earned when the count is 1. May use {count}</summary>
+        public string DayUnit;
+        /// <summary>Days earned for any other count. May use {count}</summary>
+        public string DaysUnit;
         /// <summary>May use {date}</summary>
         public string PremiumUntil;
         public string RewardsHeading;
@@ -136,6 +141,9 @@ namespace InsertAffiliate
                 ShareCopiedNotice = Or(o.ShareCopiedNotice, "Copied. Paste it anywhere to share."),
                 ReferralsLabel = Or(o.ReferralsLabel, "Referrals"),
                 EarnedLabel = Or(o.EarnedLabel, "Earned"),
+                DaysEarnedLabel = Or(o.DaysEarnedLabel, "Days earned"),
+                DayUnit = Or(o.DayUnit, "{count} day"),
+                DaysUnit = Or(o.DaysUnit, "{count} days"),
                 PremiumUntil = Or(o.PremiumUntil, "Free premium until {date}"),
                 RewardsHeading = Or(o.RewardsHeading, "Your rewards"),
                 RedeemButton = Or(o.RedeemButton, "Redeem"),
@@ -640,14 +648,19 @@ namespace InsertAffiliate
             string link = details.deeplinkurl ?? "";
             bool hasLink = link.StartsWith("http", StringComparison.OrdinalIgnoreCase);
 
-            // Code box
+            // Code box. With the code hidden it shows the link alone; without a link the code
+            // is all there is to share, so it shows even when hidden.
+            bool showCode = config == null || config.showCode || !hasLink;
             var codeBox = NewRect("CodeBox", body);
             var codeImage = codeBox.gameObject.AddComponent<Image>();
             ApplyRounded(codeImage, options.cornerRadius);
             codeImage.color = new Color(primary.r, primary.g, primary.b, 0.08f);
             AddVerticalLayout(codeBox.gameObject, 8f).padding = new RectOffset(32, 32, 28, 28);
-            CreateText(codeBox, text.CodeLabelTitle, SMALL_SIZE, MutedColor, font);
-            CreateText(codeBox, code, 72, primary, font, FontStyle.Bold);
+            if (showCode)
+            {
+                CreateText(codeBox, text.CodeLabelTitle, SMALL_SIZE, MutedColor, font);
+                CreateText(codeBox, code, 72, primary, font, FontStyle.Bold);
+            }
             if (hasLink)
             {
                 CreateText(codeBox, link, SMALL_SIZE, TextColor, font);
@@ -689,8 +702,19 @@ namespace InsertAffiliate
             statsLayout.childControlWidth = statsLayout.childControlHeight = true;
             statsLayout.childForceExpandWidth = true;
             statsLayout.childForceExpandHeight = false;
-            AddStat(stats, details.referralCount.ToString(CultureInfo.InvariantCulture), text.ReferralsLabel);
-            AddStat(stats, FormatMoney(details.totalEarned, details.currency), text.EarnedLabel);
+            // The server decides which earnings show; older servers get cash only.
+            ReferralEarnedDisplay earned = details.earnedDisplay ?? new ReferralEarnedDisplay { cash = true };
+            // Smaller values with three stats so they do not wrap
+            int statSize = earned.cash && earned.days ? 40 : 52;
+            AddStat(stats, details.referralCount.ToString(CultureInfo.InvariantCulture), text.ReferralsLabel, statSize);
+            if (earned.cash)
+            {
+                AddStat(stats, FormatMoney(details.totalEarned, details.currency), text.EarnedLabel, statSize);
+            }
+            if (earned.days)
+            {
+                AddStat(stats, FormatDays(details.rewardDaysEarned), text.DaysEarnedLabel, statSize);
+            }
 
             // Only codes this phone's store can redeem (App Store on iOS, Google Play on Android).
             var rewardCodes = InsertAffiliateSDK.RewardCodesForPlatform(details.rewardCodes, Application.platform);
@@ -749,15 +773,19 @@ namespace InsertAffiliate
                 DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal, out date);
         }
 
-        private void AddStat(Transform parent, string value, string label)
+        private void AddStat(Transform parent, string value, string label, int valueSize)
         {
             var box = NewRect("Stat", parent);
             var image = box.gameObject.AddComponent<Image>();
             ApplyRounded(image, options.cornerRadius);
             image.color = FieldColor;
             AddVerticalLayout(box.gameObject, 4f).padding = new RectOffset(16, 16, 24, 24);
-            box.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
-            CreateText(box, value, 52, TextColor, font, FontStyle.Bold);
+            // Zero min and preferred width so every stat gets the same share
+            var layout = box.gameObject.AddComponent<LayoutElement>();
+            layout.minWidth = 0f;
+            layout.preferredWidth = 0f;
+            layout.flexibleWidth = 1f;
+            CreateText(box, value, valueSize, TextColor, font, FontStyle.Bold);
             CreateText(box, label, SMALL_SIZE, MutedColor, font);
         }
 
@@ -833,6 +861,12 @@ namespace InsertAffiliate
             string value = amount.ToString("0.00", CultureInfo.InvariantCulture);
             if (string.IsNullOrEmpty(currency) || currency == "USD") return "$" + value;
             return value + " " + currency;
+        }
+
+        private string FormatDays(int days)
+        {
+            string unit = days == 1 ? text.DayUnit : text.DaysUnit;
+            return unit.Replace("{count}", days.ToString(CultureInfo.InvariantCulture));
         }
 
         private static bool HasSixDigits(string value)

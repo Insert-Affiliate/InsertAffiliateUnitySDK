@@ -944,13 +944,16 @@ InsertAffiliateSDK.ShowReferAFriend(new ReferAFriendOptions
         ShareButton = "Compartir",
         ReferralsLabel = "Referidos",
         EarnedLabel = "Ganado",
+        DaysEarnedLabel = "Dias ganados",
+        DayUnit = "{count} dia",
+        DaysUnit = "{count} dias",
         PremiumUntil = "Premium gratis hasta {date}",
         ErrorNetwork = "Sin conexion. Intentalo de nuevo."
     }
 });
 ```
 
-Keep the placeholders: `{email}` in `CodeSentNotice` and `{date}` in `PremiumUntil` are replaced with the user's email and the date their free premium ends. A value without a placeholder is shown as it is.
+Keep the placeholders: `{email}` in `CodeSentNotice` and `{date}` in `PremiumUntil` are replaced with the user's email and the date their free premium ends, and `{count}` in `DayUnit` and `DaysUnit` with the number of days. A value without a placeholder is shown as it is.
 
 | Field | Default |
 |---|---|
@@ -974,6 +977,9 @@ Keep the placeholders: `{email}` in `CodeSentNotice` and `{date}` in `PremiumUnt
 | `ShareCopiedNotice` | Copied. Paste it anywhere to share. |
 | `ReferralsLabel` | Referrals |
 | `EarnedLabel` | Earned |
+| `DaysEarnedLabel` | Days earned |
+| `DayUnit` | {count} day |
+| `DaysUnit` | {count} days |
 | `PremiumUntil` | Free premium until {date} |
 | `RewardsHeading` | Your rewards |
 | `RedeemButton` | Redeem |
@@ -1003,9 +1009,10 @@ Everything the drop-in panel does is a public method, so you can skip it and bui
 | Not enrolled | `IsUserAnAffiliate()` is false | Ask for an email and name, then `CreateAffiliateForUser(email, name, account, callback)` |
 | Code needed | result `IsVerificationRequired` | Ask for the 6-digit code, then `VerifyAffiliateCode(email, code, name, account, callback)`. Call `CreateAffiliateForUser` again to email a new code. `VerifyAffiliateCode` normalizes what you pass (every Unicode decimal digit becomes 0-9, everything else is dropped), so the raw field text is fine |
 | Enrolled | result `IsConnected`, or `IsUserAnAffiliate()` is true | `GetMyAffiliateDetails(callback)` for the code, link, `referralCount` and earnings |
-| Rewards | `details.rewardsGranted`, `details.premiumUntil`, `details.rewardCodes` | `RewardCodesForPlatform(details.rewardCodes, Application.platform)` for the codes this phone can redeem, then `Application.OpenURL(code.redeemUrl)` |
+| Rewards | `details.rewardsGranted`, `details.premiumUntil`, `details.rewardCodes`, `details.rewardDaysEarned` (free-premium days granted automatically) | `RewardCodesForPlatform(details.rewardCodes, Application.platform)` for the codes this phone can redeem, then `Application.OpenURL(code.redeemUrl)` |
+| Which earnings to show | `details.earnedDisplay.cash`, `details.earnedDisplay.days` | Show `totalEarned` only when `cash` is true and `rewardDaysEarned` only when `days` is true. Older servers give cash only. |
 | Sharing | `ShareReferralLink(message)` for the system share sheet, or `GetReferralShareText(callback, message)` for your own | `GUIUtility.systemCopyBuffer = details.deeplinkurl` to copy |
-| Program settings | `GetReferralProgramConfig(callback)` | `enabled`, `companyName`, `referralTrigger`, `headline`, `rewardText`, `primaryColor` |
+| Program settings | `GetReferralProgramConfig(callback)` | `enabled`, `showCode` (false: hide the short code, unless there is no link to share; true from older servers), `companyName`, `referralTrigger`, `headline`, `rewardText`, `primaryColor` |
 | Account for rewards | `SetReferrerAccount(options, callback)` | Call it when the user subscribes or logs in after joining |
 | Logout | `SignOutAffiliate()` | Disconnects this device only |
 | Errors | `result.errorCode` and `result.errorMessage` | Show your own wording per `ReferralErrorCodes` |
@@ -1227,7 +1234,7 @@ bool isReferrer = InsertAffiliateSDK.IsUserAnAffiliate()
 // Disconnect this device (call on app logout)
 InsertAffiliateSDK.SignOutAffiliate()
 
-// Program settings from the dashboard (enabled, companyName, referralTrigger, headline, rewardText, primaryColor)
+// Program settings from the dashboard (enabled, showCode, companyName, referralTrigger, headline, rewardText, primaryColor)
 InsertAffiliateSDK.GetReferralProgramConfig(Action<ReferralProgramConfig> callback)
 
 // Share sheet on iOS/Android, clipboard + "Copied" elsewhere

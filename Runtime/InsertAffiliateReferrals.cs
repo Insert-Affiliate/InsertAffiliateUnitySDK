@@ -1,6 +1,7 @@
 using System;
 using System.Collections;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.Networking;
 
@@ -494,9 +495,16 @@ namespace InsertAffiliate
 
                 if (request.result == UnityWebRequest.Result.Success)
                 {
-                    MyAffiliateDetails details = ParseReferralJson<MyAffiliateDetails>(request.downloadHandler.text);
+                    string detailsJson = request.downloadHandler.text;
+                    MyAffiliateDetails details = ParseReferralJson<MyAffiliateDetails>(detailsJson);
                     if (details != null)
                     {
+                        // Older servers send no earnedDisplay: show cash only, with no auto-granted days.
+                        if (details.earnedDisplay == null || !JsonHasObject(detailsJson, "earnedDisplay"))
+                        {
+                            details.earnedDisplay = new ReferralEarnedDisplay { cash = true, days = false };
+                            details.rewardDaysEarned = 0;
+                        }
                         // JsonUtility reads a missing or null string as "" and may leave a missing array null.
                         if (string.IsNullOrEmpty(details.premiumUntil)) details.premiumUntil = null;
                         if (details.rewardCodes == null) details.rewardCodes = new ReferralRewardCode[0];
@@ -601,9 +609,12 @@ namespace InsertAffiliate
 
                 if (request.result == UnityWebRequest.Result.Success)
                 {
-                    ReferralProgramConfig config = ParseReferralJson<ReferralProgramConfig>(request.downloadHandler.text);
+                    string configJson = request.downloadHandler.text;
+                    ReferralProgramConfig config = ParseReferralJson<ReferralProgramConfig>(configJson);
                     if (config != null)
                     {
+                        // JsonUtility reads a missing boolean as false; older servers send no showCode.
+                        if (!JsonHasBoolean(configJson, "showCode")) config.showCode = true;
                         referralCompanyName = config.companyName;
                         if (verboseLogging)
                         {
@@ -730,6 +741,18 @@ namespace InsertAffiliate
             {
                 return null;
             }
+        }
+
+        // True when the JSON has the key as a boolean, so a missing key is not read as false.
+        private static bool JsonHasBoolean(string json, string key)
+        {
+            return Regex.IsMatch(json ?? "", "\"" + key + "\"\\s*:\\s*(true|false)");
+        }
+
+        // True when the JSON has the key as an object.
+        private static bool JsonHasObject(string json, string key)
+        {
+            return Regex.IsMatch(json ?? "", "\"" + key + "\"\\s*:\\s*\\{");
         }
 
         [Serializable]
@@ -915,6 +938,10 @@ namespace InsertAffiliate
         public string premiumUntil;
         /// <summary>App Store one-time offer codes granted as rewards, newest first. Never null.</summary>
         public ReferralRewardCode[] rewardCodes;
+        /// <summary>Total free-premium days granted automatically. 0 from older servers.</summary>
+        public int rewardDaysEarned;
+        /// <summary>Which earnings to show: cash and/or reward days. Never null; older servers give cash only.</summary>
+        public ReferralEarnedDisplay earnedDisplay;
 
         public ReferrerAffiliate ToAffiliate()
         {
@@ -928,12 +955,26 @@ namespace InsertAffiliate
     }
 
     /// <summary>
+    /// Which earnings the company wants shown to the referrer
+    /// </summary>
+    [Serializable]
+    public class ReferralEarnedDisplay
+    {
+        /// <summary>Show the cash earned</summary>
+        public bool cash;
+        /// <summary>Show the free-premium days earned</summary>
+        public bool days;
+    }
+
+    /// <summary>
     /// The company's referral program settings, set in the Insert Affiliate dashboard
     /// </summary>
     [Serializable]
     public class ReferralProgramConfig
     {
         public bool enabled;
+        /// <summary>Whether to show the referrer's short code. True when an older server does not send it.</summary>
+        public bool showCode;
         public string companyName;
         public string referralTrigger;
         /// <summary>Empty when not set in the dashboard</summary>
